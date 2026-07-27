@@ -1,5 +1,9 @@
 # webrecon
 
+[![CI](https://github.com/Just-Ipavon/web-recon/actions/workflows/ci.yml/badge.svg)](https://github.com/Just-Ipavon/web-recon/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A small asynchronous web reconnaissance scanner: DNS enumeration, passive and
 active subdomain discovery, HTTP fingerprinting, technology detection, TLS
 certificate inspection and TCP port scanning — with JSON, terminal and HTML
@@ -24,7 +28,7 @@ CDNs, frameworks and CMSs from headers, cookies and body markers.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/web-recon.git
+git clone https://github.com/Just-Ipavon/web-recon.git
 cd web-recon
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -137,6 +141,19 @@ webrecon/
     ├── port_scan.py    TCP connect scan
     └── report.py       JSON / terminal / HTML rendering
 ```
+
+## Development
+
+```bash
+pytest -q        # 84 tests, no network access required
+ruff check .
+```
+
+Tests cover the parsing and decision logic — title extraction, robots.txt,
+crt.sh responses, technology signatures, soft-404 detection, certificate
+expiry, candidate ranking, port specifications and the throttle itself. Network
+calls are deliberately kept out of the suite so it runs offline and in CI,
+where it is checked against Python 3.10 through 3.13 on every push.
 
 ## Documentation
 

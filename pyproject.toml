@@ -15,6 +15,11 @@ dependencies = [
     "rich>=13.7",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Just-Ipavon/web-recon"
+Documentation = "https://github.com/Just-Ipavon/web-recon/tree/main/docs"
+Issues = "https://github.com/Just-Ipavon/web-recon/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

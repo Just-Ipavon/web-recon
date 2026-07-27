@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_PORTS = [21, 22, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8000, 8080, 8443]
 
-USER_AGENT = "webrecon/0.1 (+https://github.com/ipavon/web-recon)"
+USER_AGENT = "webrecon/0.1 (+https://github.com/Just-Ipavon/web-recon)"
 
 
 @dataclass
