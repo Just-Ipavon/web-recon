@@ -142,19 +142,6 @@ webrecon/
     └── report.py       JSON / terminal / HTML rendering
 ```
 
-## Development
-
-```bash
-pytest -q        # 84 tests, no network access required
-ruff check .
-```
-
-Tests cover the parsing and decision logic — title extraction, robots.txt,
-crt.sh responses, technology signatures, soft-404 detection, certificate
-expiry, candidate ranking, port specifications and the throttle itself. Network
-calls are deliberately kept out of the suite so it runs offline and in CI,
-where it is checked against Python 3.10 through 3.13 on every push.
-
 ## Documentation
 
 Full technical documentation lives in [docs/](docs/README.md): architecture and
