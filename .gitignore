@@ -11,6 +11,8 @@ dist/
 htmlcov/
 reports/
 *.json.report
+report.json
+report.html
 .DS_Store
 .idea/
 .vscode/

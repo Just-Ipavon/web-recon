@@ -12,6 +12,8 @@ reports.
 > **Authorised use only.** Run this against systems you own or have written
 > permission to test. Unauthorised scanning is illegal in most jurisdictions.
 
+![webrecon scanning example.com: DNS records, HTTP fingerprint and TLS certificate](assets/demo.svg)
+
 ## Features
 
 | Module | What it does |
@@ -68,22 +70,11 @@ webrecon example.com --no-passive
 
 ### Example output
 
-```text
-╭──────────────────── webrecon ────────────────────╮
-│ example.com                                      │
-│ started  2026-07-27T14:14:39+00:00               │
-│ finished 2026-07-27T14:14:40+00:00               │
-╰──────────────────────────────────────────────────╯
-                       HTTP (1 reachable)
-┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
-┃ url                 ┃ status ┃ title          ┃ technologies ┃
-┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
-│ https://example.com │    200 │ Example Domain │ Cloudflare   │
-└─────────────────────┴────────┴────────────────┴──────────────┘
-```
+Every scan produces the same data in three forms. The terminal report is shown
+in the recording at the top of this page; the other two are written on request.
 
-The JSON report carries the same data in full, suitable for piping into `jq` or
-feeding another tool:
+The JSON report is the full dataset, suitable for piping into `jq` or feeding
+another tool:
 
 ```json
 {
@@ -99,6 +90,12 @@ feeding another tool:
   ]
 }
 ```
+
+The HTML report is a single self-contained file — no external stylesheets,
+scripts or fonts — so it can be archived or attached to an engagement report
+and still render years later:
+
+![HTML report for example.com, showing DNS records, subdomains, HTTP results, TLS certificates and open ports](assets/reporthtml.png)
 
 ## Design notes
 
