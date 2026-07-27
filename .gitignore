@@ -13,6 +13,8 @@ reports/
 *.json.report
 report.json
 report.html
+node_modules/
+.env
 .DS_Store
 .idea/
 .vscode/

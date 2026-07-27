@@ -23,8 +23,22 @@ lines = open(src_path).read().splitlines()
 header = json.loads(lines[0])
 events = [json.loads(line) for line in lines[1:]]
 
-for index, event in enumerate(events):
-    event[0] = round(0.5 + index * step, 2)
+def is_typing(payload: str) -> bool:
+    """Keystrokes arrive one character at a time and carry no newline.
+
+    Their original rhythm is what makes the demo look like someone typing, so
+    it is preserved; only whole lines of program output get spaced out.
+    """
+    return "\n" not in payload and len(payload) <= 2
+
+
+clock = 0.5
+previous = events[0][0]
+for event in events:
+    gap = event[0] - previous
+    previous = event[0]
+    clock += gap if is_typing(event[2]) else max(gap, step)
+    event[0] = round(clock, 2)
 
 # A no-op reset sequence in the future keeps the final frame visible before the
 # animation loops back to the start.
