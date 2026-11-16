@@ -168,3 +168,186 @@ class TestSelectCandidates:
     def test_returns_everything_when_the_cap_is_not_positive(self):
         candidates = {"a.example.com": "bruteforce", "b.example.com": "bruteforce"}
         assert len(dns_enum.select_candidates(candidates, "example.com", 0)) == 2
+
+
+class FakeResponse:
+    def __init__(self, body: str, content_type: str = "text/plain", status: int = 200):
+        self.status_code = status
+        self.text = body
+        self.content = body.encode()
+        self.headers = {"content-type": content_type}
+
+
+class TestSoftNotFoundGuard:
+    @pytest.mark.parametrize(
+        "path,body,content_type",
+        [
+            ("/sitemap.xml", "<html><body>Not found</body></html>", "text/html"),
+            ("/robots.txt", '{"error":"not found"}', "application/json"),
+            ("/robots.txt", "<!doctype html><body>404</body>", "text/plain"),
+            ("/.well-known/security.txt", "Not Found", "text/plain"),
+            ("/.env", "<html><script>API_URL='x'</script></html>", "text/html"),
+            ("/.env", "API_URL='x'", "text/html"),
+            ("/.git/HEAD", "not a ref", "text/plain"),
+        ],
+    )
+    def test_rejects_false_positives(self, path, body, content_type):
+        assert not http_probe._looks_like_hit(FakeResponse(body, content_type), path)
+
+    @pytest.mark.parametrize(
+        "path,body",
+        [
+            ("/.env", "db_password=x"),
+            ("/.env", "DB1_HOST=x"),
+            ("/.env", "export SECRET_KEY=x"),
+            ("/.env", "# comment\nAPP_ENV = production"),
+            ("/.git/HEAD", "0123456789abcdef0123456789abcdef01234567\n"),
+            ("/.git/HEAD", "ref: refs/heads/main\n"),
+            ("/robots.txt", "# hi\nUser-agent: *\nDisallow: /a"),
+            ("/.well-known/security.txt", "Contact: mailto:sec@example.com"),
+            ("/sitemap.xml", '<?xml version="1.0"?><sitemapindex xmlns="x"></sitemapindex>'),
+        ],
+    )
+    def test_accepts_real_files(self, path, body):
+        assert http_probe._looks_like_hit(FakeResponse(body), path)
+
+    def test_rejects_a_body_identical_to_the_random_path_baseline(self):
+        body = "User-agent: *\nDisallow: /"
+        assert not http_probe._looks_like_hit(FakeResponse(body), "/robots.txt", baseline=body)
+
+
+class TestTechDetectFalsePositives:
+    @pytest.mark.parametrize(
+        "headers,body,cookies,absent",
+        [
+            ({}, "", ["session=abc; Path=/"], "Flask"),
+            ({}, "", ["prefs=a,session=b; Path=/"], "Flask"),
+            ({"server": "Apache-Coyote/1.1"}, "", [], "Apache"),
+            ({}, "<p>We migrated away from Joomla! last year</p>", [], "Joomla"),
+            ({}, "<p>the csrfmiddlewaretoken field is documented here</p>", [], "Django"),
+        ],
+    )
+    def test_does_not_fire_without_real_evidence(self, headers, body, cookies, absent):
+        assert absent not in tech_detect.detect(headers, body, cookies)
+
+    @pytest.mark.parametrize(
+        "headers,body,cookies,present",
+        [
+            ({}, "", ["session=eyJhIjoxfQ.ZxYz12.abcDEF_-123; HttpOnly"], "Flask"),
+            ({"server": "Apache-Coyote/1.1"}, "", [], "Apache Tomcat"),
+            ({"server": "Apache/2.4.58 (Debian)"}, "", [], "Apache"),
+            ({}, '<meta name="generator" content="Joomla! - Open Source">', [], "Joomla"),
+            ({}, '<input type="hidden" name="csrfmiddlewaretoken" value="x">', [], "Django"),
+        ],
+    )
+    def test_fires_on_real_evidence(self, headers, body, cookies, present):
+        assert present in tech_detect.detect(headers, body, cookies)
+
+    def test_expires_attribute_is_not_a_cookie_name(self):
+        jar = tech_detect.parse_cookies(
+            ["id=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/", "PHPSESSID=x"]
+        )
+        assert set(jar) == {"id", "phpsessid"}
+
+    def test_newline_joined_header_is_split_per_cookie(self):
+        found = tech_detect.detect({"set-cookie": "a=1; Path=/\nlaravel_session=x; Path=/"})
+        assert "Laravel" in found
+
+
+class TestTitleEdgeCases:
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ("<title>A &amp; B</title>", "A & B"),
+            ("<svg><title>icon</title></svg><title>Real</title>", "Real"),
+            ("<!-- <title>old</title> --><title>Real</title>", "Real"),
+            ("<script>var t='<title>js</title>'</script><title>Real</title>", "Real"),
+            ("<TITLE\n>x</TITLE >", "x"),
+            ("<head><title>T&#252;r</title></head>", "Tür"),
+        ],
+    )
+    def test_extracts_the_document_title(self, body, expected):
+        assert http_probe.extract_title(body) == expected
+
+
+class TestHostileCrtsh:
+    def test_drops_names_that_are_not_hostnames(self):
+        payload = json.dumps(
+            [
+                {"name_value": "user@mail.example.com"},
+                {"name_value": "?.example.com"},
+                {"name_value": "foo bar.example.com"},
+                {"name_value": "evil.test/x?.example.com"},
+                {"name_value": "-x.example.com"},
+                {"name_value": "ok.example.com"},
+                {"name_value": 7},
+                "not a dict",
+            ]
+        )
+        assert dns_enum.parse_crtsh(payload, "example.com") == {"ok.example.com"}
+
+
+class TestWordlistEdgeCases:
+    def test_strips_inline_comments_bom_and_invalid_words(self, tmp_path):
+        path = tmp_path / "w.txt"
+        path.write_bytes(
+            "\ufeff# header comment\nwww # inline\nfoo bar\n*.x\napi\ndev.api\n".encode()
+        )
+        assert dns_enum.load_wordlist(path) == ["www", "api", "dev.api"]
+
+
+class TestRedaction:
+    def test_redacts_cookie_values_but_keeps_attributes(self):
+        import httpx
+
+        headers = httpx.Headers(
+            [
+                ("Set-Cookie", "sid=secret; Expires=Wed, 21 Oct 2026 07:28:00 GMT; HttpOnly"),
+                ("Set-Cookie", "theme=dark"),
+                ("Authorization", "Bearer abc"),
+                ("Server", "nginx"),
+            ]
+        )
+        flat = http_probe.collect_headers(headers)
+        assert "secret" not in flat["set-cookie"]
+        assert flat["set-cookie"].split("\n") == [
+            "sid=<redacted>; Expires=Wed, 21 Oct 2026 07:28:00 GMT; HttpOnly",
+            "theme=<redacted>",
+        ]
+        assert flat["authorization"] == "<redacted>"
+        assert flat["server"] == "nginx"
+
+    def test_can_keep_values_when_asked(self):
+        import httpx
+
+        flat = http_probe.collect_headers(httpx.Headers([("Set-Cookie", "sid=v")]), redact=False)
+        assert flat["set-cookie"] == "sid=v"
+
+
+class TestSecurityHeaders:
+    def test_reports_missing_protections_on_https(self):
+        from webrecon.modules import security_headers
+
+        findings = security_headers.analyse({}, ["sid=1; Path=/"], https=True)
+        assert "missing Strict-Transport-Security" in findings
+        assert "missing Content-Security-Policy" in findings
+        assert any(f.startswith("cookie sid without Secure, HttpOnly, SameSite") for f in findings)
+
+    def test_a_hardened_response_has_no_findings(self):
+        from webrecon.modules import security_headers
+
+        headers = {
+            "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+            "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        }
+        cookies = ["sid=1; Secure; HttpOnly; SameSite=Lax"]
+        assert security_headers.analyse(headers, cookies, https=True) == []
+
+    def test_hsts_is_not_expected_over_plain_http(self):
+        from webrecon.modules import security_headers
+
+        assert "missing Strict-Transport-Security" not in security_headers.analyse(
+            {}, [], https=False
+        )
