@@ -58,3 +58,22 @@ class TestThrottle:
     def test_rejects_invalid_settings(self, kwargs):
         with pytest.raises(ValueError):
             Throttle(**kwargs)
+
+
+class TestThrottleCancellation:
+    async def test_a_cancelled_waiter_releases_its_slot(self):
+        throttle = Throttle(concurrency=1, rate_per_second=5)
+        async with throttle:
+            pass  # consume the first slot so the next waiter has to sleep
+
+        async def waiter():
+            async with throttle:
+                await asyncio.sleep(10)
+
+        task = asyncio.create_task(waiter())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # The semaphore slot came back: another holder gets in.
+        await asyncio.wait_for(throttle.__aenter__(), timeout=1.5)
