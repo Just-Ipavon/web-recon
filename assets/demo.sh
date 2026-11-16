@@ -9,10 +9,10 @@
 #
 # WEBRECON overrides the binary, e.g. WEBRECON=.venv/bin/webrecon.
 
-set -u
+set -euo pipefail
 
 WEBRECON="${WEBRECON:-webrecon}"
-ARGS="example.com -m dns,http,tls --no-passive -r 10"
+ARGS="example.com -m dns,http,tls --no-passive -r 10 --i-have-authorization"
 LINE="webrecon $ARGS"
 
 printf '\033[1;32m$\033[0m '
