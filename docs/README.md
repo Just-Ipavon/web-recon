@@ -2,18 +2,18 @@
 
 | | |
 | --- | --- |
-| System | webrecon 0.1.0 |
+| System | webrecon 0.2.0 |
 | Document type | Software Design Description (SDD) |
 | Reference structure | ISO/IEC/IEEE 1016 |
 | Diagram notation | UML 2.5, rendered in Mermaid |
-| Last revised | 2026-07-27 |
+| Last revised | 2026-11-16 |
 
 ## Index
 
 | Document | Contents | Who it is for |
 | --- | --- | --- |
 | [01 — Architecture](01-architecture.md) | Context view, packages, data model, architectural decisions (ADRs), deployment, non-functional requirements | Anyone who needs to understand how the system is built, and why |
-| [02 — Use cases](02-use-cases.md) | Actors, use case diagram, eight detailed specifications with main and alternative flows, operational scenarios, legitimacy constraints | Anyone who needs to understand what the system is for |
+| [02 — Use cases](02-use-cases.md) | Actors, use case diagram, nine detailed specifications with main and alternative flows, operational scenarios, legitimacy constraints | Anyone who needs to understand what the system is for |
 | [03 — Function reference](03-function-reference.md) | Every function, class and constant: behaviour, edge cases, error handling, covering tests | Anyone modifying or extending the code |
 | [04 — Runtime behaviour](04-runtime-behaviour.md) | Sequence diagrams, lifecycle, concurrency model, error propagation, timing profile, verification strategy | Anyone who needs to understand what happens at runtime |
 
@@ -25,9 +25,9 @@ For installation and day-to-day usage, see the [project README](../README.md).
 | --- | --- | --- |
 | Context diagram | 01 §1.2 | System and external actors |
 | Package diagram | 01 §1.3 | Layers and the dependency rule |
-| Class diagram | 01 §1.4 | Data model and infrastructure |
+| Class diagram | 01 §1.4 | Data model, scan context and infrastructure |
 | Deployment diagram | 01 §1.6 | Execution nodes and protocols |
-| Use case diagram | 02 §2.2 | Eight use cases with *include* and *extend* relationships |
+| Use case diagram | 02 §2.2 | Nine use cases with *include* and *extend* relationships |
 | State diagram | 03 §3.7, 04 §4.6 | `Throttle` states and the scan lifecycle |
 | Activity diagram | 03 §3.8, §3.15 | Subdomain enumeration, CLI flow |
 | Sequence diagram | 04 §4.2–4.5, §4.7 | Overall scan, enumeration, HTTP probe, TLS inspection, throttling |
@@ -51,5 +51,12 @@ diagram update land in the same commit.
 
 This documentation describes the actual behaviour of the code at the revision
 stated above, not a design intention. Any change that alters a function
-signature, an error flow or an exit code requires the corresponding document to
-be updated in the same commit.
+signature, an error flow, a command line option or an exit code requires the
+corresponding document to be updated in the same commit.
+
+### Revision history
+
+| Version | Date | Summary |
+| --- | --- | --- |
+| 0.1.0 | 2026-07-27 | First issue. |
+| 0.2.0 | 2026-11-16 | Shared `ScanContext` and throttle for every network call; target parsing and scope enforcement (`targets.py`); authorisation gate; stage isolation, `--max-time` and partial reports; asynchronous TLS inspection decoding DER with `cryptography`; security-header analysis; DNS status, mail hints, wildcard detection and AXFR; private, non-overwriting report files and incremental JSONL; new exit codes 3 and 1. |

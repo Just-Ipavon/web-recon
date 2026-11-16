@@ -19,6 +19,9 @@ def _utcnow() -> str:
 class DnsRecords:
     domain: str
     records: dict[str, list[str]] = field(default_factory=dict)
+    # Per query outcome: OK, NOANSWER, NXDOMAIN, TIMEOUT, SERVFAIL or ERROR.
+    status: dict[str, str] = field(default_factory=dict)
+    findings: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -48,6 +51,7 @@ class HttpResult:
     final_url: str | None = None
     technologies: list[str] = field(default_factory=list)
     interesting_paths: list[str] = field(default_factory=list)
+    findings: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -62,6 +66,13 @@ class TlsInfo:
     not_after: str | None = None
     days_until_expiry: int | None = None
     san: list[str] = field(default_factory=list)
+    # True when the chain and the hostname verified against the system trust
+    # store, False when they did not (see verify_error), None when unknown.
+    trusted: bool | None = None
+    verify_error: str | None = None
+    protocol: str | None = None
+    cipher: str | None = None
+    findings: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -70,6 +81,13 @@ class PortResult:
     port: int
     open: bool
     service: str | None = None
+    banner: str | None = None
+
+
+@dataclass
+class SkippedHost:
+    host: str
+    reason: str
 
 
 @dataclass
@@ -77,12 +95,27 @@ class ScanReport:
     target: str
     started_at: str = field(default_factory=_utcnow)
     finished_at: str | None = None
+    complete: bool = False
+    incomplete_reason: str | None = None
+    scope: list[str] = field(default_factory=list)
+    authorization: dict[str, Any] | None = None
+    settings: dict[str, Any] = field(default_factory=dict)
     dns: DnsRecords | None = None
     subdomains: list[Subdomain] = field(default_factory=list)
     http: list[HttpResult] = field(default_factory=list)
     tls: list[TlsInfo] = field(default_factory=list)
     ports: list[PortResult] = field(default_factory=list)
+    skipped: list[SkippedHost] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def anything_reachable(self) -> bool:
+        """True when at least one host answered on any probed channel."""
+        return (
+            any(h.reachable for h in self.http)
+            or any(p.open for p in self.ports)
+            or any(t.error is None for t in self.tls)
+        )
