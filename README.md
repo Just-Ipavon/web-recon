@@ -18,11 +18,11 @@ reports.
 
 | Module | What it does |
 | --- | --- |
-| `dns` | Resolves A, AAAA, MX, NS, TXT, CNAME and SOA records |
-| `subdomains` | Certificate transparency lookups (crt.sh) plus wordlist brute-force, then resolves each candidate |
-| `http` | Reachability, redirect chain, status, page title, headers, and content discovery (`robots.txt`, `sitemap.xml`, `security.txt`, exposed `.git`/`.env`) |
-| `tls` | Issuer, subject, SANs, validity window and days until expiry |
-| `ports` | TCP connect scan over an explicit port list |
+| `dns` | Resolves A, AAAA, MX, NS, TXT, CNAME, SOA and CAA records with a per-query status (NXDOMAIN, timeout, SERVFAIL); SPF/DMARC/DKIM hints for mail domains; optional zone-transfer (AXFR) check |
+| `subdomains` | Certificate transparency lookups (crt.sh) plus wordlist brute-force with wildcard-DNS detection, then resolves each candidate |
+| `http` | Reachability, redirect chain, status, page title, headers, security-header and cookie-flag findings, and content discovery (`robots.txt`, `sitemap.xml`, `security.txt`, exposed `.git`/`.env`) |
+| `tls` | Issuer, subject, SANs, validity window, days until expiry, chain and hostname verification, protocol and cipher — also for self-signed and expired certificates |
+| `ports` | TCP connect scan over an explicit port list, with optional sanitised banners; open web ports are fed to the HTTP and TLS modules |
 
 Technology detection runs on every HTTP response and identifies ~30 servers,
 CDNs, frameworks and CMSs from headers, cookies and body markers.
@@ -36,37 +36,82 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+A small subdomain wordlist ships inside the package and is used by default;
+`-w` points at your own list and `--no-wordlist` turns brute-force off.
+
 ## Usage
 
 ```bash
-# Default scan: DNS, subdomains, HTTP and TLS
+# Default scan: DNS, subdomains, HTTP and TLS (asks you to confirm authorization)
 webrecon example.com
 
-# Everything, with a wordlist and a JSON + HTML report
-webrecon example.com -m all -w wordlists/subdomains-small.txt -o report.json --html report.html
+# Everything, non-interactively, with JSON + HTML reports and a live JSONL log
+webrecon example.com -m all --i-have-authorization \
+    -o report.json --html report.html --jsonl results.jsonl
 
-# 10 requests per second, 5 at a time
-webrecon example.com -r 10 -c 5
+# 10 requests per second across all modules, 5 at a time, at most 10 minutes
+webrecon example.com -r 10 -c 5 --max-time 600
+
+# A web app on a non-standard port, plus a list of further targets
+webrecon https://app.example.com:8443 -iL targets.txt
+
+# Limit the perimeter explicitly and allow an internal range
+webrecon example.com --scope example.com,10.0.0.0/24 --allow-private
 
 # Active only — skip certificate transparency lookups
 webrecon example.com --no-passive
+
+# Pipe the JSON report to jq
+webrecon example.com -m dns --json | jq .dns.records
 ```
+
+Targets can be a domain, an IP address (IPv4 or IPv6), `host:port` or a URL;
+internationalised names are converted to punycode. Before any active module
+runs, webrecon asks you to confirm that you are authorised to test the
+targets (or takes `--i-have-authorization`), and records the operator, the
+time and the scope in the report.
 
 ### Options
 
 | Flag | Meaning |
 | --- | --- |
+| `target ...` | One or more domains, IPs, `host:port` or URLs |
+| `-iL FILE` | Read more targets from a file, one per line |
+| `-V, --version` | Print the version |
 | `-m, --modules` | Modules to run: `dns`, `subdomains`, `http`, `tls`, `ports`, or `all` |
-| `-w, --wordlist` | Subdomain wordlist for brute-force |
-| `-c, --concurrency` | Maximum concurrent requests (default 20) |
-| `-r, --rate` | Maximum requests per second; `0` disables pacing |
-| `-t, --timeout` | Per-request timeout in seconds (default 5) |
+| `-w, --wordlist` | Subdomain wordlist for brute-force (default: the bundled list) |
+| `--no-wordlist` | Skip subdomain brute-force |
 | `-p, --ports` | Ports to scan, e.g. `80,443,8000-8100` |
-| `--max-subdomains` | Cap on candidates resolved (default 200) |
-| `--no-passive` | Skip crt.sh lookups |
+| `--max-subdomains` | Cap on candidates resolved (default 200, `0` for no cap) |
+| `--no-passive` | Skip crt.sh lookups (otherwise the target name is sent to crt.sh) |
+| `--banners` | Read a short, sanitised banner from each open port |
+| `--axfr` | Attempt a DNS zone transfer against each name server |
+| `--resolver IP` | Query this DNS server instead of the system resolver |
+| `-c, --concurrency` | Maximum concurrent requests (default 20) |
+| `-r, --rate` | Maximum requests per second across all modules; `0` disables pacing |
+| `-t, --timeout` | Per-request timeout in seconds (default 5) |
+| `--max-time` | Stop each target's scan after this many seconds and report what was found |
+| `--max-requests-per-host` | HTTP request budget per host (default unlimited) |
+| `--scope`, `--scope-file` | Domains and CIDRs that may be contacted (default: the target and its subdomains) |
+| `--allow-private` | Allow loopback, private and link-local addresses (refused by default) |
+| `--i-have-authorization` | Confirm authorization without the interactive prompt |
+| `--operator` | Name recorded in the report (default: the current user) |
+| `--verify-tls` | Verify certificates on HTTP probes (off by default; the TLS module always reports verification status) |
+| `--proxy URL` | HTTP(S) proxy for HTTP probes and crt.sh; DNS, TLS and port scans still connect directly. `HTTP(S)_PROXY` variables are ignored |
+| `--user-agent` | User-Agent for HTTP requests |
+| `--no-redact` | Keep `Set-Cookie` and `Authorization` values in reports |
 | `-o, --output` | Write a JSON report |
 | `--html` | Write a self-contained HTML report |
+| `--jsonl` | Append each result to a JSONL file as soon as it is found |
+| `--json` | Print the JSON report to stdout |
+| `--force` | Overwrite existing report files |
 | `-q, --quiet` | Suppress terminal output |
+| `--fail-if-unreachable` | Exit with status 3 when no target answered |
+
+Exit codes: `0` success, `1` runtime error, `2` usage error or authorization
+not confirmed, `3` nothing reachable (with `--fail-if-unreachable`), `130`
+interrupted. An interrupted or crashed scan still writes its reports, marked
+as incomplete.
 
 ### Example output
 
@@ -99,14 +144,28 @@ and still render years later:
 
 ## Design notes
 
-**Everything is rate limited.** Each module routes its outbound calls through
-`Throttle` ([webrecon/ratelimit.py](webrecon/ratelimit.py)), which combines a
-semaphore for in-flight work with a token bucket for request rate. Unbounded
-concurrency is what separates a recon tool from a denial-of-service tool.
+**Everything is rate limited.** One `Throttle`
+([webrecon/ratelimit.py](webrecon/ratelimit.py)) is built per scan and shared by
+every module: DNS queries, the crt.sh lookup, HTTP requests, TLS handshakes and
+port connects each take a slot. It combines a semaphore for in-flight work with
+a token bucket for request rate. Unbounded concurrency is what separates a
+recon tool from a denial-of-service tool.
+
+**Scope is explicit.** Every host the tool contacts — subdomains, redirect
+targets, certificate endpoints — is checked against one scope (by default the
+target and its subdomains). Out-of-scope hosts and non-public addresses are
+listed as skipped in the report instead of being probed.
 
 **Failures are contained, not fatal.** A DNS timeout, an unreachable host or an
-unparseable certificate is recorded in the result and the scan continues. A
+unparseable certificate is recorded in the result and the scan continues; an
+unexpected exception in one stage becomes an error entry and the other stages
+still run. Errors and unreachable hosts appear in every output format. A
 partial report beats a traceback.
+
+**Reports are handled as sensitive.** Cookie and authorization values are
+redacted, report files are created readable by the owner only (mode 0600) and
+are never overwritten without `--force`, and the HTML report carries a
+Content-Security-Policy that forbids scripts.
 
 **Modules return dataclasses, not dicts.** Every module produces types from
 [webrecon/models.py](webrecon/models.py), so the report layer never guesses at
@@ -114,8 +173,9 @@ a schema and JSON output stays stable.
 
 **Content discovery avoids soft 404s.** Servers that answer `200` with an HTML
 error page are common, so a path only counts as a hit when its body matches the
-shape expected for that file — a `.git/HEAD` must start with `ref:`, an `.env`
-must contain `KEY=value` lines.
+shape expected for that file — a `.git/HEAD` must hold a ref or a commit hash,
+an `.env` must contain `KEY=value` lines and no HTML, a `robots.txt` must
+contain directives — and differs from what the server sends for a random path.
 
 **Candidates are ranked before truncation.** `--max-subdomains` cuts by
 confidence (target, then certificate transparency, then wordlist guesses), not
@@ -125,18 +185,22 @@ alphabetically, so the hosts most likely to exist survive the cap.
 
 ```text
 webrecon/
-├── cli.py              argument parsing, output selection
+├── cli.py              argument parsing, authorization gate, output selection
 ├── scanner.py          orchestration: runs enabled modules, assembles report
+├── context.py          ScanContext: shared throttle, scope and report
+├── targets.py          target parsing and scope enforcement
 ├── config.py           ScanConfig
 ├── models.py           result dataclasses
 ├── ratelimit.py        Throttle: concurrency + rate limiting
+├── data/               bundled subdomain wordlist
 └── modules/
-    ├── dns_enum.py     records, crt.sh, wordlist brute-force
-    ├── http_probe.py   probing, redirects, content discovery
-    ├── tech_detect.py  signature-based fingerprinting
-    ├── tls_info.py     certificate inspection
-    ├── port_scan.py    TCP connect scan
-    └── report.py       JSON / terminal / HTML rendering
+    ├── dns_enum.py         records, crt.sh, wordlist brute-force
+    ├── http_probe.py       probing, redirects, content discovery
+    ├── security_headers.py security-header and cookie-flag findings
+    ├── tech_detect.py      signature-based fingerprinting
+    ├── tls_info.py         certificate inspection
+    ├── port_scan.py        TCP connect scan
+    └── report.py           JSON / JSONL / terminal / HTML rendering
 ```
 
 ## Documentation
