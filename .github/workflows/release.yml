@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create and release, e.g. v0.2.0 (must match webrecon.__version__)"
+        required: true
 
 permissions:
   contents: read
@@ -23,10 +28,12 @@ jobs:
 
       - name: Check the tag matches the package version
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]] || { echo "invalid tag $TAG"; exit 1; }
           version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('webrecon/__init__.py').read()).group(1))")
           test "$TAG" = "v$version" || { echo "tag $TAG does not match version $version"; exit 1; }
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Test
@@ -53,5 +60,7 @@ jobs:
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --title "webrecon $VERSION" --notes-file notes.md --verify-tag
+        # A tag push already created the tag; a manual run creates it on this commit.
+        run: |
+          gh release create "$TAG" dist/* --title "webrecon $VERSION" --notes-file notes.md \
+            --target "$GITHUB_SHA"
