@@ -29,15 +29,15 @@ CDNs, frameworks and CMSs from headers, cookies and body markers.
 
 ## Install
 
-To use the tool, install it from [PyPI](https://pypi.org/project/web-recon/)
+To use the tool, install it from [PyPI](https://pypi.org/project/webrecon-cli/)
 in its own environment with [pipx](https://pipx.pypa.io/):
 
 ```bash
-pipx install web-recon
+pipx install webrecon-cli
 ```
 
-The package is called `web-recon` (the name `webrecon` on PyPI belongs to an
-unrelated project); the command it installs is `webrecon`. The latest
+The package is called `webrecon-cli` (the name `webrecon` on PyPI belongs to
+an unrelated project); the command it installs is `webrecon`. The latest
 development version installs with
 `pipx install git+https://github.com/Just-Ipavon/web-recon.git`.
 

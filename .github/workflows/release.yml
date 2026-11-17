@@ -98,7 +98,7 @@ jobs:
     # only, so no API token is stored in the repository.
     environment:
       name: pypi
-      url: https://pypi.org/project/web-recon/
+      url: https://pypi.org/project/webrecon-cli/
     permissions:
       id-token: write
     steps:

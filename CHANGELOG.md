@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Published on PyPI as `web-recon` (`pipx install web-recon`); the name
+- Published on PyPI as `webrecon-cli` (`pipx install webrecon-cli`); the name
   `webrecon` on PyPI belongs to an unrelated project. The command and the
   Python package are still called `webrecon`.
 - Each release is now also uploaded to PyPI through Trusted Publishing, and the
