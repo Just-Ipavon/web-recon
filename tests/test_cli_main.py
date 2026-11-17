@@ -177,3 +177,53 @@ class TestFailingHostMixedWithHealthyOne:
         first, second = json.loads(capsys.readouterr().out)
         assert first["http"][0]["reachable"] is False and first["http"][0]["error"]
         assert second["http"][0]["title"] == "ok"
+
+
+class TestReportLocation:
+    def test_bare_flags_write_one_file_per_target_under_reports(
+        self, http_server, tmp_path, monkeypatch, capsys
+    ):
+        a = http_server({"/": response(200, "<title>a</title>")})
+        b = http_server({"/": response(200, "<title>b</title>")})
+        monkeypatch.chdir(tmp_path)
+        code = cli.main(
+            [f"http://127.0.0.1:{a.port}", f"http://127.0.0.1:{b.port}", "-m", "http",
+             *LOCAL, "-q", "-o", "--html"]
+        )
+        assert code == 0
+        reports = tmp_path / "reports"
+        for server, title in ((a, "a"), (b, "b")):
+            data = json.loads((reports / f"127.0.0.1_{server.port}.json").read_text())
+            assert data["http"][0]["title"] == title
+            assert (reports / f"127.0.0.1_{server.port}.html").exists()
+        assert stat.S_IMODE(os.stat(reports).st_mode) == 0o700
+
+    def test_a_trailing_slash_means_a_directory(self, http_server, tmp_path, capsys):
+        server = http_server({"/": response(200, "<title>x</title>")})
+        out = tmp_path / "out"
+        code = cli.main(
+            [f"http://127.0.0.1:{server.port}", "-m", "http", *LOCAL, "-q", "-o", f"{out}/"]
+        )
+        assert code == 0
+        assert (out / f"127.0.0.1_{server.port}.json").exists()
+
+    def test_an_existing_per_target_file_needs_force(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "reports").mkdir()
+        (tmp_path / "reports" / "example.com.json").write_text("{}")
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["example.com", "-m", "dns", "-o"])
+        assert exc.value.code == 2
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("example.com", "example.com.json"),
+            ("https://example.com:8443", "example.com_8443.json"),
+            ("2001:db8::1", "2001_db8__1.json"),
+        ],
+    )
+    def test_file_names(self, raw, expected):
+        from webrecon.targets import parse_target
+
+        assert cli.report_filename(parse_target(raw), "json") == expected

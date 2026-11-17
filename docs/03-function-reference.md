@@ -1189,9 +1189,19 @@ lists the exit codes.
 | pacing and budgets | `-c/--concurrency`, `-r/--rate`, `-t/--timeout`, `--max-time SECONDS`, `--max-requests-per-host N` |
 | scope and authorization | `--scope ENTRIES` (repeatable), `--scope-file FILE`, `--allow-private`, `--i-have-authorization`, `--operator` |
 | HTTP | `--verify-tls`, `--proxy`, `--user-agent`, `--no-redact` |
-| output | `-o/--output`, `--html`, `--jsonl`, `--json`, `--force`, `-q/--quiet`, `--fail-if-unreachable` |
+| output | `-o/--output [PATH]`, `--html [PATH]`, `--jsonl`, `--json`, `--force`, `-q/--quiet`, `--fail-if-unreachable` |
 
-*Tests:* `tests/test_cli.py::TestParser`
+`-o` and `--html` take an optional path. Without one they write to
+`reports/` (`DEFAULT_REPORT_DIR`), one file per target named by
+`report_filename`: the host, `_port` when the target has one, and the
+extension (`example.com.json`, `192.0.2.1_8443.html`; the colons of an IPv6
+literal become `_`). A path ending in `/` or naming an existing directory gets
+the same per-target layout; any other path is a single file holding every
+target's report, as an array when there are several. `plan_output` resolves
+these paths and checks for existing files before any scan starts; the
+directory itself is created (mode 0700) only when the first report is written.
+
+*Tests:* `tests/test_cli.py::TestParser`, `tests/test_cli_main.py::TestReportLocation`
 
 ### `resolve_modules(value: str) -> set[str]`
 

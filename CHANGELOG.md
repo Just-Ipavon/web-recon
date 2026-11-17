@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- `-o` and `--html` take an optional path. Without one, reports go to
+  `reports/<target>.json` and `reports/<target>.html`, one file per target; a
+  path ending in `/` or naming a directory gets the same per-target layout.
+
 ## [0.2.1] - 2026-11-17
 
 ### Changed

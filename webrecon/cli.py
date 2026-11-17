@@ -34,6 +34,9 @@ EXIT_NOTHING_REACHABLE = 3
 EXIT_INTERRUPTED = 130
 
 MAX_PORT = 65535
+
+# Where -o and --html write when given no path: one file per target.
+DEFAULT_REPORT_DIR = "reports/"
 _DIGITS = re.compile(r"^[0-9]{1,5}$")
 _NUMBER = re.compile(r"^-?[0-9]+(?:\.[0-9]+)?$")
 
@@ -241,8 +244,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     output = parser.add_argument_group("output")
-    output.add_argument("-o", "--output", type=Path, help="write a JSON report to this path")
-    output.add_argument("--html", type=Path, help="write an HTML report to this path")
+    output.add_argument(
+        "-o", "--output", nargs="?", const=DEFAULT_REPORT_DIR, metavar="PATH",
+        help="write a JSON report: to PATH, or one file per target inside PATH when it is a "
+        "directory or ends with '/'; without PATH, to reports/<target>.json",
+    )
+    output.add_argument(
+        "--html", nargs="?", const=DEFAULT_REPORT_DIR, metavar="PATH",
+        help="write an HTML report, with the same rules as -o (reports/<target>.html)",
+    )
     output.add_argument(
         "--jsonl", type=Path, help="append each result to this JSONL file as it is found"
     )
@@ -287,6 +297,48 @@ def _check_output(parser: argparse.ArgumentParser, path: Path | None, force: boo
         parser.error(f"directory {path.parent} does not exist (for {path})")
     if path.exists() and not force:
         parser.error(f"{path} already exists; use --force to overwrite it")
+
+
+def report_filename(target: Target, extension: str) -> str:
+    """File name for one target's report: ``example.com.json``, ``192.0.2.1_8443.html``."""
+    name = target.host.replace(":", "_")  # IPv6 literals
+    if target.port:
+        name += f"_{target.port}"
+    return f"{name}.{extension}"
+
+
+# Each entry: where to write, and the indexes of the targets whose reports go there.
+OutputPlan = list[tuple[Path, list[int]]]
+
+
+def plan_output(
+    parser: argparse.ArgumentParser,
+    value: str | None,
+    targets: list[Target],
+    extension: str,
+    force: bool,
+) -> OutputPlan:
+    """Decide the report files for -o or --html, failing before any scan starts.
+
+    A path that is an existing directory or ends with ``/`` (including the
+    default ``reports/``) gets one file per target; any other path is a single
+    file holding every target's report.
+    """
+    if value is None:
+        return []
+    path = Path(value)
+    if value.endswith(("/", "\\")) or path.is_dir():
+        if path.exists() and not path.is_dir():
+            parser.error(f"{path} is not a directory")
+        plan: OutputPlan = []
+        for index, target in enumerate(targets):
+            file = path / report_filename(target, extension)
+            if file.exists() and not force:
+                parser.error(f"{file} already exists; use --force to overwrite it")
+            plan.append((file, [index]))
+        return plan
+    _check_output(parser, path, force)
+    return [(path, list(range(len(targets))))]
 
 
 def _confirm(
@@ -366,8 +418,9 @@ def main(argv: list[str] | None = None) -> int:
         wordlist = bundled_wordlist()
 
     # ---- outputs
-    for path in (args.output, args.html, args.jsonl):
-        _check_output(parser, path, args.force)
+    json_plan = plan_output(parser, args.output, targets, "json", args.force)
+    html_plan = plan_output(parser, args.html, targets, "html", args.force)
+    _check_output(parser, args.jsonl, args.force)
 
     # ---- options that would silently do nothing
     if args.ports is not None and "ports" not in modules:
@@ -465,14 +518,18 @@ def main(argv: list[str] | None = None) -> int:
         payload = reports[0] if len(reports) == 1 else reports
         sys.stdout.write(report_module.to_json(payload) + "\n")
 
-    single: ScanReport | list[ScanReport] = reports[0] if len(reports) == 1 else reports
     try:
-        if args.output:
-            report_module.write_json(single, args.output, args.force)
-            console.print(f"[green]JSON report written to[/green] {args.output}")
-        if args.html:
-            report_module.write_html(single, args.html, args.force)
-            console.print(f"[green]HTML report written to[/green] {args.html}")
+        for kind, plan, write in (
+            ("JSON", json_plan, report_module.write_json),
+            ("HTML", html_plan, report_module.write_html),
+        ):
+            for path, indexes in plan:
+                selected = [reports[i] for i in indexes if i < len(reports)]
+                if not selected:
+                    continue  # interrupted before this target was scanned
+                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                write(selected[0] if len(selected) == 1 else selected, path, args.force)
+                console.print(f"[green]{kind} report written to[/green] {path}")
     except OSError as exc:
         console.print(f"[red]could not write report:[/red] {exc}")
         return EXIT_ERROR
