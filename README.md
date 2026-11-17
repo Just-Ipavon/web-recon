@@ -176,7 +176,7 @@ The HTML report is a single self-contained file — no external stylesheets,
 scripts or fonts — so it can be archived or attached to an engagement report
 and still render years later:
 
-![HTML report for example.com, showing DNS records, subdomains, HTTP results, TLS certificates and open ports](https://raw.githubusercontent.com/Just-Ipavon/web-recon/main/assets/reporthtml.png)
+![HTML report for example.com, showing scope and authorization, DNS records, HTTP results, security-header findings and the TLS certificate](https://raw.githubusercontent.com/Just-Ipavon/web-recon/main/assets/reporthtml.png)
 
 ## Design notes
 

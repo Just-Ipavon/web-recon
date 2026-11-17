@@ -400,7 +400,8 @@ def to_html(reports: Reports) -> str:
   th, td {{ text-align: left; padding: .4rem .6rem;
             border-bottom: 1px solid rgba(128,128,128,.3); vertical-align: top; }}
   th {{ font-weight: 600; white-space: nowrap; }}
-  td {{ word-break: break-word; }}
+  td {{ overflow-wrap: anywhere; }}
+  td:first-child {{ white-space: nowrap; }}
   hr {{ margin: 3rem 0; border: 0; border-top: 1px solid rgba(128,128,128,.4); }}
 </style></head>
 <body>
