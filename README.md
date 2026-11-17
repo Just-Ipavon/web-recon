@@ -78,9 +78,12 @@ A small subdomain wordlist ships inside the package and is used by default;
 # Default scan: DNS, subdomains, HTTP and TLS (asks you to confirm authorization)
 webrecon example.com
 
-# Everything, non-interactively, with JSON + HTML reports and a live JSONL log
-webrecon example.com -m all --i-have-authorization \
-    -o report.json --html report.html --jsonl results.jsonl
+# Everything, non-interactively, with JSON + HTML reports in reports/
+# (reports/example.com.json and reports/example.com.html) and a live JSONL log
+webrecon example.com -m all --i-have-authorization -o --html --jsonl results.jsonl
+
+# Reports in a file of your choice
+webrecon example.com -o scan.json --html scan.html
 
 # 10 requests per second across all modules, 5 at a time, at most 10 minutes
 webrecon example.com -r 10 -c 5 --max-time 600
@@ -133,8 +136,8 @@ time and the scope in the report.
 | `--proxy URL` | HTTP(S) proxy for HTTP probes and crt.sh; DNS, TLS and port scans still connect directly. `HTTP(S)_PROXY` variables are ignored |
 | `--user-agent` | User-Agent for HTTP requests |
 | `--no-redact` | Keep `Set-Cookie` and `Authorization` values in reports |
-| `-o, --output` | Write a JSON report |
-| `--html` | Write a self-contained HTML report |
+| `-o, --output [PATH]` | Write a JSON report. Without `PATH`: `reports/<target>.json`, one per target. A `PATH` ending in `/` (or an existing directory) gets one file per target; any other `PATH` is a single file with every target |
+| `--html [PATH]` | Write a self-contained HTML report, with the same rules (`reports/<target>.html`) |
 | `--jsonl` | Append each result to a JSONL file as soon as it is found |
 | `--json` | Print the JSON report to stdout |
 | `--force` | Overwrite existing report files |

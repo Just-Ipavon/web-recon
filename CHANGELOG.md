@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2] - 2026-11-17
+
+### Changed
+
+- `-o` and `--html` take an optional path. Without one, reports go to
+  `reports/<target>.json` and `reports/<target>.html`, one file per target; a
+  path ending in `/` or naming a directory gets the same per-target layout.
+
+### Fixed
+
+- HTML report tables no longer split short labels in the first column.
+
 ## [0.2.1] - 2026-11-17
 
 ### Changed
@@ -62,6 +74,7 @@
 - First release: DNS records, subdomain enumeration, HTTP fingerprinting, TLS
   inspection, TCP port scan, JSON/terminal/HTML reports.
 
+[0.2.2]: https://github.com/Just-Ipavon/web-recon/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Just-Ipavon/web-recon/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Just-Ipavon/web-recon/compare/7d11318...v0.2.0
 [0.1.0]: https://github.com/Just-Ipavon/web-recon/tree/7d11318
