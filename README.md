@@ -12,7 +12,7 @@ reports.
 > **Authorised use only.** Run this against systems you own or have written
 > permission to test. Unauthorised scanning is illegal in most jurisdictions.
 
-![webrecon scanning example.com: DNS records, HTTP fingerprint and TLS certificate](assets/demo.svg)
+![webrecon scanning example.com: DNS records, HTTP fingerprint and TLS certificate](https://raw.githubusercontent.com/Just-Ipavon/web-recon/main/assets/demo.svg)
 
 ## Features
 
@@ -29,12 +29,17 @@ CDNs, frameworks and CMSs from headers, cookies and body markers.
 
 ## Install
 
-To use the tool, install it in its own environment with
-[pipx](https://pipx.pypa.io/):
+To use the tool, install it from [PyPI](https://pypi.org/project/web-recon/)
+in its own environment with [pipx](https://pipx.pypa.io/):
 
 ```bash
-pipx install git+https://github.com/Just-Ipavon/web-recon.git
+pipx install web-recon
 ```
+
+The package is called `web-recon` (the name `webrecon` on PyPI belongs to an
+unrelated project); the command it installs is `webrecon`. The latest
+development version installs with
+`pipx install git+https://github.com/Just-Ipavon/web-recon.git`.
 
 To work on the code, clone it and install it in a virtual environment. These
 commands work in any shell, because they call the environment's own `pip`
@@ -168,7 +173,7 @@ The HTML report is a single self-contained file — no external stylesheets,
 scripts or fonts — so it can be archived or attached to an engagement report
 and still render years later:
 
-![HTML report for example.com, showing DNS records, subdomains, HTTP results, TLS certificates and open ports](assets/reporthtml.png)
+![HTML report for example.com, showing DNS records, subdomains, HTTP results, TLS certificates and open ports](https://raw.githubusercontent.com/Just-Ipavon/web-recon/main/assets/reporthtml.png)
 
 ## Design notes
 

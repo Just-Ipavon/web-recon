@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1] - 2026-11-17
+
+### Changed
+
+- Published on PyPI as `web-recon` (`pipx install web-recon`); the name
+  `webrecon` on PyPI belongs to an unrelated project. The command and the
+  Python package are still called `webrecon`.
+- Each release is now also uploaded to PyPI through Trusted Publishing, and the
+  release workflow can be started by hand with the tag as input.
+- Install instructions in the README work in any shell (fish, csh, PowerShell).
+
 ## [0.2.0] - 2026-11-16
 
 ### Security and scope
@@ -51,5 +62,6 @@
 - First release: DNS records, subdomain enumeration, HTTP fingerprinting, TLS
   inspection, TCP port scan, JSON/terminal/HTML reports.
 
+[0.2.1]: https://github.com/Just-Ipavon/web-recon/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Just-Ipavon/web-recon/compare/7d11318...v0.2.0
 [0.1.0]: https://github.com/Just-Ipavon/web-recon/tree/7d11318
