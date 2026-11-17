@@ -8,6 +8,10 @@
   `reports/<target>.json` and `reports/<target>.html`, one file per target; a
   path ending in `/` or naming a directory gets the same per-target layout.
 
+### Fixed
+
+- HTML report tables no longer split short labels in the first column.
+
 ## [0.2.1] - 2026-11-17
 
 ### Changed
