@@ -29,12 +29,40 @@ CDNs, frameworks and CMSs from headers, cookies and body markers.
 
 ## Install
 
+To use the tool, install it in its own environment with
+[pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install git+https://github.com/Just-Ipavon/web-recon.git
+```
+
+To work on the code, clone it and install it in a virtual environment. These
+commands work in any shell, because they call the environment's own `pip`
+instead of activating it:
+
 ```bash
 git clone https://github.com/Just-Ipavon/web-recon.git
 cd web-recon
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/webrecon --version
 ```
+
+To have `webrecon`, `pytest` and the other tools on your `PATH`, activate the
+environment with the script for your shell:
+
+| Shell | Command |
+| --- | --- |
+| bash, zsh | `source .venv/bin/activate` |
+| fish | `source .venv/bin/activate.fish` |
+| csh, tcsh | `source .venv/bin/activate.csh` |
+| PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows cmd | `.venv\Scripts\activate.bat` |
+
+On Windows the paths in the commands above are `.venv\Scripts\pip` and
+`.venv\Scripts\webrecon`. Do not install with the system `pip`: distributions
+such as Arch, Debian and Fedora refuse it (PEP 668, "externally managed
+environment").
 
 A small subdomain wordlist ships inside the package and is used by default;
 `-w` points at your own list and `--no-wordlist` turns brute-force off.
