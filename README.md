@@ -12,7 +12,7 @@ reports.
 > **Authorised use only.** Run this against systems you own or have written
 > permission to test. Unauthorised scanning is illegal in most jurisdictions.
 
-![webrecon scanning example.com: DNS records, HTTP fingerprint and TLS certificate](assets/demo.svg)
+![webrecon scanning example.com: DNS records, HTTP fingerprint and TLS certificate](https://raw.githubusercontent.com/Just-Ipavon/web-recon/main/assets/demo.svg)
 
 ## Features
 
@@ -29,12 +29,45 @@ CDNs, frameworks and CMSs from headers, cookies and body markers.
 
 ## Install
 
+To use the tool, install it from [PyPI](https://pypi.org/project/webrecon-cli/)
+in its own environment with [pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install webrecon-cli
+```
+
+The package is called `webrecon-cli` (the name `webrecon` on PyPI belongs to
+an unrelated project); the command it installs is `webrecon`. The latest
+development version installs with
+`pipx install git+https://github.com/Just-Ipavon/web-recon.git`.
+
+To work on the code, clone it and install it in a virtual environment. These
+commands work in any shell, because they call the environment's own `pip`
+instead of activating it:
+
 ```bash
 git clone https://github.com/Just-Ipavon/web-recon.git
 cd web-recon
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/webrecon --version
 ```
+
+To have `webrecon`, `pytest` and the other tools on your `PATH`, activate the
+environment with the script for your shell:
+
+| Shell | Command |
+| --- | --- |
+| bash, zsh | `source .venv/bin/activate` |
+| fish | `source .venv/bin/activate.fish` |
+| csh, tcsh | `source .venv/bin/activate.csh` |
+| PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows cmd | `.venv\Scripts\activate.bat` |
+
+On Windows the paths in the commands above are `.venv\Scripts\pip` and
+`.venv\Scripts\webrecon`. Do not install with the system `pip`: distributions
+such as Arch, Debian and Fedora refuse it (PEP 668, "externally managed
+environment").
 
 A small subdomain wordlist ships inside the package and is used by default;
 `-w` points at your own list and `--no-wordlist` turns brute-force off.
@@ -140,7 +173,7 @@ The HTML report is a single self-contained file — no external stylesheets,
 scripts or fonts — so it can be archived or attached to an engagement report
 and still render years later:
 
-![HTML report for example.com, showing DNS records, subdomains, HTTP results, TLS certificates and open ports](assets/reporthtml.png)
+![HTML report for example.com, showing DNS records, subdomains, HTTP results, TLS certificates and open ports](https://raw.githubusercontent.com/Just-Ipavon/web-recon/main/assets/reporthtml.png)
 
 ## Design notes
 
