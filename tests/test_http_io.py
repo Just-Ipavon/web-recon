@@ -79,6 +79,33 @@ class TestProbeUrl:
         assert result.reachable and result.status == 302
         assert skipped[0][0] == "evil.test"
         assert all("evil.test" not in hit for hit in server.hits)
+        # Context, not a weakness: a note, and no header findings on the redirect.
+        assert any("redirect to evil.test not followed" in n for n in result.notes)
+        assert result.findings == []
+
+    async def test_placeholder_pages_get_a_note_instead_of_header_findings(
+        self, http_server, client
+    ):
+        server = http_server(
+            {"/": response(200, "<html><title>Welcome to nginx!</title></html>",
+                           [("Content-Type", "text/html")])}
+        )
+        result = await http_probe.probe_url(client, server.url, Throttle(5),
+                                            discover_paths=False)
+        assert result.findings == []
+        assert result.notes == ["nginx default page; security headers not checked"]
+
+    async def test_a_host_that_never_answers_is_marked_timed_out(self):
+        import socket
+
+        with socket.socket() as listener:  # accepts the connection, never replies
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            async with httpx.AsyncClient(timeout=0.3, trust_env=False) as c:
+                result = await http_probe.probe_url(c, f"http://127.0.0.1:{port}", Throttle(1))
+        assert result.reachable is False
+        assert result.timed_out is True
 
     async def test_unreachable_host_is_an_error_not_a_crash(self, client):
         from conftest import free_port
@@ -124,6 +151,17 @@ class TestProbeHosts:
         )
         assert results[0].reachable
         assert results[0].url == f"http://127.0.0.1:{server.port}"
+        # Both schemes are tested and recorded, whichever one answered.
+        assert set(results[0].schemes) == {"http", "https"}
+        assert results[0].schemes["http"] == "200"
+        assert results[0].schemes["https"] != "200"
+
+    async def test_an_explicit_scheme_is_the_only_one_tested(self, http_server):
+        server = http_server({"/": response(200, "<title>x</title>")})
+        config = ScanConfig(target="127.0.0.1", timeout=2, allow_private=True)
+        ctx = ScanContext.create(config)
+        results = await http_probe.probe_hosts([("127.0.0.1", server.port, "http")], ctx)
+        assert list(results[0].schemes) == ["http"]
 
     async def test_rate_applies_to_http_requests(self, http_server):
         import time
@@ -135,3 +173,29 @@ class TestProbeHosts:
         await http_probe.probe_hosts([("127.0.0.1", server.port, "http")], ctx)
         # page + random baseline + 5 discovery paths = 7 requests at 20/s
         assert time.monotonic() - start >= 0.25
+
+
+class TestSchemeFindings:
+    class _Response:
+        def __init__(self, status: int) -> None:
+            self.status_code = status
+
+    def _result(self, url: str, final_url: str | None = None):
+        from webrecon.models import HttpResult
+
+        return HttpResult(url=url, reachable=True, status=200, final_url=final_url or url)
+
+    def test_http_only_site(self):
+        findings = http_probe.scheme_findings(self._result("http://example.com"), None)
+        assert findings == ["HTTPS not available: the site is served over plain HTTP only"]
+
+    def test_plain_http_without_redirect(self):
+        findings = http_probe.scheme_findings(
+            self._result("https://example.com"), self._Response(200)
+        )
+        assert findings == ["plain HTTP serves content instead of redirecting to HTTPS"]
+
+    def test_plain_http_redirecting_to_https_is_fine(self):
+        assert http_probe.scheme_findings(
+            self._result("https://example.com"), self._Response(301)
+        ) == []

@@ -562,8 +562,8 @@ def _mark_unfinished(
 ) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for report in reports:
-        if report.complete:
-            continue
+        if report.complete or (report.finished_at and report.incomplete_reason):
+            continue  # finished; its own reason already stands
         report.incomplete_reason = report.incomplete_reason or reason
         report.finished_at = report.finished_at or now
         if jsonl is not None:

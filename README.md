@@ -19,8 +19,8 @@ reports.
 | Module | What it does |
 | --- | --- |
 | `dns` | Resolves A, AAAA, MX, NS, TXT, CNAME, SOA and CAA records with a per-query status (NXDOMAIN, timeout, SERVFAIL); SPF/DMARC/DKIM hints for mail domains; optional zone-transfer (AXFR) check |
-| `subdomains` | Certificate transparency lookups (crt.sh) plus wordlist brute-force with wildcard-DNS detection, then resolves each candidate |
-| `http` | Reachability, redirect chain, status, page title, headers, security-header and cookie-flag findings, and content discovery (`robots.txt`, `sitemap.xml`, `security.txt`, exposed `.git`/`.env`) |
+| `subdomains` | In-scope MX and NS hosts, certificate transparency lookups (crt.sh) and wordlist brute-force with wildcard-DNS detection, then resolves each candidate |
+| `http` | Tests every host on both HTTPS and HTTP; reachability, redirect chain, status, page title, headers, security-header and cookie-flag findings (not on placeholder pages or unfollowed redirects, which get informational notes instead), and content discovery (`robots.txt`, `sitemap.xml`, `security.txt`, exposed `.git`/`.env`) |
 | `tls` | Issuer, subject, SANs, validity window, days until expiry, chain and hostname verification, protocol and cipher — also for self-signed and expired certificates |
 | `ports` | TCP connect scan over an explicit port list, with optional sanitised banners; open web ports are fed to the HTTP and TLS modules |
 
@@ -147,7 +147,9 @@ time and the scope in the report.
 Exit codes: `0` success, `1` runtime error, `2` usage error or authorization
 not confirmed, `3` nothing reachable (with `--fail-if-unreachable`), `130`
 interrupted. An interrupted or crashed scan still writes its reports, marked
-as incomplete.
+as incomplete. A scan that ran to the end is also marked incomplete
+(`complete: false`, with `incomplete_reason`) when a module failed or an
+in-scope host did not answer.
 
 ### Example output
 

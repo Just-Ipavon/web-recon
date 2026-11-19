@@ -51,7 +51,16 @@ class HttpResult:
     final_url: str | None = None
     technologies: list[str] = field(default_factory=list)
     interesting_paths: list[str] = field(default_factory=list)
+    # Weaknesses worth acting on.
     findings: list[str] = field(default_factory=list)
+    # Informational context that is not a weakness (an out-of-scope redirect
+    # not followed, a placeholder page whose headers were not checked).
+    notes: list[str] = field(default_factory=list)
+    # Outcome of each scheme tried on this endpoint, e.g.
+    # {"https": "200", "http": "301 -> https://example.com/"}.
+    schemes: dict[str, str] = field(default_factory=dict)
+    # True when every attempt timed out: the host did not answer at all.
+    timed_out: bool = False
     error: str | None = None
 
 

@@ -140,7 +140,43 @@ class TestRunScan:
         assert report.dns.records
         assert report.http and report.ports
         assert any(e.startswith("tls: UnicodeError") for e in report.errors)
-        assert report.complete is True
+        assert report.complete is False
+        assert report.incomplete_reason == "1 error during the scan (see errors)"
+
+    async def test_a_failed_module_marks_the_report_incomplete(
+        self, monkeypatch, stub_modules
+    ):
+        async def failing_dns(domain, *args, **kwargs):
+            return DnsRecords(domain=domain, error="DNS queries timed out")
+
+        monkeypatch.setattr(scanner.dns_enum, "fetch_records", failing_dns)
+        report = await scanner.run_scan(make_config(modules={"dns", "http"}))
+        assert report.complete is False
+        assert "1 error" in report.incomplete_reason
+
+    async def test_a_silent_in_scope_host_marks_the_report_incomplete(
+        self, monkeypatch, stub_modules
+    ):
+        async def silent_http(endpoints, ctx):
+            return [
+                HttpResult(url="https://www.example.com", reachable=False,
+                           error="ConnectTimeout: timed out", timed_out=True),
+                HttpResult(url="https://example.com", reachable=False,
+                           error="ConnectError: connection refused"),
+            ]
+
+        async def silent_tls(endpoints, ctx):
+            return [TlsInfo(host="api.example.com", port=443, valid=False,
+                            error=scanner.tls_info.HANDSHAKE_TIMEOUT)]
+
+        monkeypatch.setattr(scanner.http_probe, "probe_hosts", silent_http)
+        monkeypatch.setattr(scanner.tls_info, "inspect_hosts", silent_tls)
+        report = await scanner.run_scan(make_config(modules={"http", "tls"}))
+        assert report.complete is False
+        # A refused connection is an answer; only the timeouts count.
+        assert report.incomplete_reason == (
+            "no response from in-scope host(s): www.example.com, api.example.com"
+        )
 
     async def test_max_time_returns_a_partial_report(self, monkeypatch, stub_modules):
         async def slow_http(endpoints, ctx):

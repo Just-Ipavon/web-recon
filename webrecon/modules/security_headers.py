@@ -28,6 +28,11 @@ def cookie_attributes(raw: str) -> tuple[str, set[str], dict[str, str]]:
 
 def analyse(headers: Mapping[str, str], cookies: Iterable[str], https: bool) -> list[str]:
     """Return human-readable findings for missing or weak protections."""
+    return analyse_headers(headers, https) + analyse_cookies(cookies, https)
+
+
+def analyse_headers(headers: Mapping[str, str], https: bool) -> list[str]:
+    """Findings for missing or weak security response headers."""
     h = {k.lower(): v for k, v in headers.items()}
     findings: list[str] = []
 
@@ -49,7 +54,12 @@ def analyse(headers: Mapping[str, str], cookies: Iterable[str], https: bool) -> 
         findings.append("missing X-Frame-Options or CSP frame-ancestors (clickjacking)")
     if "referrer-policy" not in h:
         findings.append("missing Referrer-Policy")
+    return findings
 
+
+def analyse_cookies(cookies: Iterable[str], https: bool) -> list[str]:
+    """Findings for cookies set without Secure, HttpOnly or SameSite."""
+    findings: list[str] = []
     for raw in cookies:
         name, flags, values = cookie_attributes(raw)
         if not name:
@@ -65,5 +75,4 @@ def analyse(headers: Mapping[str, str], cookies: Iterable[str], https: bool) -> 
             missing.append("Secure (required by SameSite=None)")
         if missing:
             findings.append(f"cookie {name} without {', '.join(missing)}")
-
     return findings

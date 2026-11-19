@@ -51,6 +51,18 @@ class TestJson:
 
 
 class TestHtml:
+    def test_keeps_notes_apart_from_findings(self):
+        report = sample_report()
+        report.http[0].findings = ["missing Referrer-Policy"]
+        report.http[0].notes = ["nginx default page; security headers not checked"]
+        report.http[0].schemes = {"https": "200", "http": "301 -> https://www.example.com/"}
+        html = report_module.to_html(report)
+        findings = html.split("<h2>Findings</h2>")[1].split("<h2")[0]
+        notes = html.split("<h2>Notes</h2>")[1].split("<h2")[0]
+        assert "Referrer-Policy" in findings and "default page" not in findings
+        assert "nginx default page" in notes
+        assert "http: 301 -&gt; https://www.example.com/" in html
+
     def test_includes_the_scan_data(self):
         html = report_module.to_html(sample_report())
         assert "example.com" in html

@@ -147,23 +147,27 @@ the target actively.
 
 #### Main flow
 
-1. If passive mode is on, the system queries crt.sh for certificates issued on
+1. The system takes the hosts named by the target's MX and NS records (from
+   the DNS stage, or queried now if that stage did not run) and keeps those
+   inside the scope as candidates labelled `mx` or `ns`; third-party mail and
+   DNS providers are dropped silently.
+2. If passive mode is on, the system queries crt.sh for certificates issued on
    the domain, sending its User-Agent and, if configured, through the proxy.
-2. The system normalises the returned names: lowercase, wildcards stripped,
+3. The system normalises the returned names: lowercase, wildcards stripped,
    anything that is not a valid hostname or lies outside the target domain
    discarded.
-3. Unless `--no-wordlist` is given, the system generates `word.domain`
+4. Unless `--no-wordlist` is given, the system generates `word.domain`
    candidates from the supplied wordlist or, by default, the bundled one.
-4. The system adds the apex domain to the candidate set, labelled `target`.
-5. The system drops candidates outside the scope, recording them as skipped.
-6. The system resolves a few random labels to detect a wildcard zone.
-7. The system orders candidates by source confidence and applies the
+5. The system adds the apex domain to the candidate set, labelled `target`.
+6. The system drops candidates outside the scope, recording them as skipped.
+7. The system resolves a few random labels to detect a wildcard zone.
+8. The system orders candidates by source confidence and applies the
    `--max-subdomains` cap.
-8. The system resolves the A and AAAA records of each candidate, one throttle
+9. The system resolves the A and AAAA records of each candidate, one throttle
    slot per query.
-9. The system discards candidates that do not resolve, and wordlist candidates
-   that resolve only to the wildcard addresses, and returns the rest in
-   alphabetical order.
+10. The system discards candidates that do not resolve, and wordlist candidates
+    that resolve only to the wildcard addresses, and returns the rest in
+    alphabetical order.
 
 #### Alternative flows
 
@@ -171,7 +175,7 @@ the target actively.
 | --- | --- | --- |
 | A1 | crt.sh does not answer, returns an HTTP error, or answers with something other than JSON | The failure is recorded in `ScanReport.errors`; the system proceeds with wordlist candidates. |
 | A2 | The wordlist path does not exist or is not a file | `cli.main` terminates before the scan with an explicit message (exit 2). |
-| A3 | Candidates exceed the cap | Survivors, in order: apex domain, crt.sh names, wordlist names. |
+| A3 | Candidates exceed the cap | Survivors, in order: apex domain, MX/NS and crt.sh names, wordlist names. |
 | A4 | A candidate resolves over IPv6 only | It is included normally; `addresses` holds only the AAAA addresses. |
 | A5 | The zone has a wildcard record | A note reports the wildcard addresses and how many wordlist candidates were discarded; crt.sh names are kept. |
 | A6 | Lookups time out or the server fails | Those candidates are dropped and a note reports how many could not be resolved. |
@@ -190,8 +194,9 @@ the target actively.
 #### Main flow
 
 1. For each endpoint the system chooses the scheme order: the explicit scheme
-   if one was given, HTTP first on ports where plain HTTP is the norm, HTTPS
-   first otherwise.
+   if one was given, otherwise both, HTTP first on ports where plain HTTP is
+   the norm and HTTPS first elsewhere. Every endpoint is tested on the same
+   schemes, so hosts are compared on equal terms.
 2. The system manually follows up to five redirects, recording the status and
    destination of each, and refuses to follow destinations outside the scope.
 3. From the final response the system extracts status, final URL, title,
@@ -200,17 +205,23 @@ the target actively.
    separate and redacting cookie values and credentials.
 5. The system matches headers, cookies and body against the technology
    signatures and collects the hits, without duplicates.
-6. The system checks the security headers and cookie flags and records findings.
+6. The system checks the security headers and cookie flags and records findings,
+   unless the page is a placeholder (default server page, parked domain,
+   coming-soon page, empty body): that gets a note instead.
 7. The system runs content discovery against the host (UC-08).
+8. The system checks the scheme it did not fully probe with one request and
+   records each scheme's outcome in `HttpResult.schemes`. On default ports a
+   site served over HTTP only, or plain HTTP serving content instead of
+   redirecting to HTTPS, is a finding.
 
 #### Alternative flows
 
 | Id | Condition | Behaviour |
 | --- | --- | --- |
-| A1 | The first scheme fails | The system retries with the other; if that fails too it returns the first result, which carries the original error. |
+| A1 | The first scheme fails | The system probes the other in full; if that fails too it returns the first result, which carries the original error, with `timed_out` set when every attempt timed out. |
 | A2 | Redirects exceed the limit | `HttpResult.error` reports `too many redirects` and the host is marked unreachable. |
 | A3 | A redirect returns to a URL already visited | `HttpResult.error` reports `redirect loop at …` and the host is marked unreachable. |
-| A4 | A redirect points outside the scope | It is recorded in `redirects` and in `findings`, the destination is listed in `skipped`, and the last in-scope response is analysed. |
+| A4 | A redirect points outside the scope | It is recorded in `redirects` and in `notes` (not `findings`), the destination is listed in `skipped`, and the redirect response gets only the cookie checks: missing headers on a redirect say nothing about the site. |
 | A5 | The response exceeds 256 KB | The body is truncated before analysis; headers and status remain intact. |
 | A6 | No signature matches | `technologies` stays empty: the system makes no claim it cannot evidence. |
 | A7 | The per-host request budget is exhausted | `HttpResult.error` reports `per-host request budget exhausted`; content discovery stops for that host. |

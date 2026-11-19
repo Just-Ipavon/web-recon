@@ -4,7 +4,9 @@ One :class:`~webrecon.context.ScanContext` carries a single shared throttle and
 scope for every stage. Each stage is isolated: an exception is recorded in
 ``report.errors`` and the scan moves on, so results gathered earlier are never
 lost. ``config.max_time`` bounds the whole scan; when it is reached the report
-is returned marked as incomplete.
+is returned marked as incomplete. A scan that ran to the end is still marked
+incomplete when a module failed or an in-scope host did not answer, because
+the report then lacks data that a second run may well collect.
 """
 
 from __future__ import annotations
@@ -95,7 +97,9 @@ async def run_scan(
             await asyncio.wait_for(_run_stages(ctx, stage), config.max_time)
         else:
             await _run_stages(ctx, stage)
-        report.complete = True
+        reasons = incomplete_reasons(report)
+        report.complete = not reasons
+        report.incomplete_reason = "; ".join(reasons) or None
     except asyncio.TimeoutError:
         report.incomplete_reason = f"maximum scan time of {config.max_time:g}s reached"
         ctx.error(f"scan stopped: {report.incomplete_reason}")
@@ -110,6 +114,26 @@ async def run_scan(
         },
     )
     return report
+
+
+def incomplete_reasons(report: ScanReport) -> list[str]:
+    """Why a scan that ran every stage still produced an incomplete report.
+
+    Two things leave holes: a module that failed (anything recorded in
+    ``report.errors``) and an in-scope host that never answered (every HTTP
+    attempt, or the TLS handshake, timed out). A refused connection is an
+    answer: the host is up and the port is closed.
+    """
+    reasons: list[str] = []
+    if report.errors:
+        count = len(report.errors)
+        reasons.append(f"{count} error{'s' if count != 1 else ''} during the scan (see errors)")
+    silent = [urlsplit(r.url).hostname or r.url for r in report.http if r.timed_out]
+    silent += [t.host for t in report.tls if t.error == tls_info.HANDSHAKE_TIMEOUT]
+    silent = list(dict.fromkeys(silent))
+    if silent:
+        reasons.append(f"no response from in-scope host(s): {', '.join(silent)}")
+    return reasons
 
 
 async def _guarded(ctx: ScanContext, name: str, work: Awaitable[T]) -> T | None:

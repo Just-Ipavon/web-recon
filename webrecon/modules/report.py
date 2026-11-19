@@ -20,7 +20,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from ..models import ScanReport
+from ..models import HttpResult, ScanReport
 
 Reports = ScanReport | Sequence[ScanReport]
 
@@ -156,6 +156,7 @@ def _render_one(report: ScanReport, console: Console) -> None:
         table.add_column("status", justify="right")
         table.add_column("title", overflow="fold")
         table.add_column("technologies", overflow="fold")
+        table.add_column("schemes", overflow="fold")
         for result in live:
             colour = "green" if result.status and result.status < 400 else "yellow"
             table.add_row(
@@ -163,6 +164,7 @@ def _render_one(report: ScanReport, console: Console) -> None:
                 f"[{colour}]{result.status}[/{colour}]",
                 e(result.title or "-"),
                 e(", ".join(result.technologies) or "-"),
+                e(_schemes(result, short=True) or "-"),
             )
         console.print(table)
 
@@ -235,8 +237,9 @@ def _render_one(report: ScanReport, console: Console) -> None:
             table.add_row(e(skipped.host), e(skipped.reason))
         console.print(table)
 
-    for note in report.notes:
-        console.print(f"[cyan]note[/cyan] {e(note)}")
+    for where, note in _notes(report):
+        prefix = f"{e(where)}: " if where else ""
+        console.print(f"[cyan]note[/cyan] {prefix}{e(note)}")
     for error in report.errors:
         console.print(f"[red]error[/red] {e(error)}")
 
@@ -250,6 +253,24 @@ def _findings(report: ScanReport) -> list[tuple[str, str]]:
     for cert in report.tls:
         out += [(f"{cert.host}:{cert.port}", f) for f in cert.findings]
     return out
+
+
+def _notes(report: ScanReport) -> list[tuple[str, str]]:
+    """Informational notes: the scan's own, then those attached to HTTP results."""
+    out: list[tuple[str, str]] = [("", n) for n in report.notes]
+    for result in report.http:
+        out += [(result.final_url or result.url, n) for n in result.notes]
+    return out
+
+
+def _schemes(result: HttpResult, short: bool = False) -> str:
+    """``https: 200; http: 301 -> …``; ``short`` keeps only the error type of failures."""
+    parts = []
+    for scheme, outcome in result.schemes.items():
+        if short and not outcome[:1].isdigit():
+            outcome = outcome.split(":", 1)[0]
+        parts.append(f"{scheme}: {outcome}")
+    return "; ".join(parts)
 
 
 # ------------------------------------------------------------------------------- html
@@ -322,9 +343,10 @@ def _html_report(report: ScanReport) -> str:
         ),
         _section(
             "HTTP",
-            ["URL", "Status", "Title", "Technologies"],
+            ["URL", "Status", "Title", "Technologies", "Schemes"],
             [
-                [r.final_url or r.url, r.status, r.title, ", ".join(r.technologies)]
+                [r.final_url or r.url, r.status, r.title, ", ".join(r.technologies),
+                 _schemes(r)]
                 for r in report.http
                 if r.reachable
             ],
@@ -361,7 +383,7 @@ def _html_report(report: ScanReport) -> str:
             [[p.port, p.service, p.banner] for p in report.ports],
         ),
         _section("Skipped", ["Host", "Reason"], [[s.host, s.reason] for s in report.skipped]),
-        _section("Notes", ["Note"], [[n] for n in report.notes]),
+        _section("Notes", ["Where", "Note"], [[w, n] for w, n in _notes(report)]),
     ]
     if not any(
         (report.dns and report.dns.records, report.subdomains, report.http, report.tls,

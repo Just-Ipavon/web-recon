@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- `complete` is `false` also when a module failed (any entry in `errors`) or an
+  in-scope host never answered (all HTTP attempts or the TLS handshake timed
+  out); `incomplete_reason` says which. A refused connection still counts as
+  an answer.
+- Hosts named by the target's MX and NS records join the subdomain candidates
+  (sources `mx` and `ns`) when they are in scope.
+- HTTP results separate `findings` (weaknesses) from `notes` (context). An
+  out-of-scope redirect that is not followed is now a note, and missing
+  security headers are no longer reported on such redirects or on placeholder
+  pages (default server pages, parked domains, coming-soon and empty pages).
+- Every host is tested on both HTTPS and HTTP: the first scheme that answers is
+  probed in full and the other checked with one request; `HttpResult.schemes`
+  records both outcomes. On default ports, a site served over HTTP only or
+  plain HTTP serving content without redirecting to HTTPS is a finding.
+- New `HttpResult` fields: `notes`, `schemes`, `timed_out`.
+
 ## [0.2.2] - 2026-11-17
 
 ### Changed

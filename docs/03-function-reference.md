@@ -171,9 +171,9 @@ reports produced in different time zones from being incomparable.
 | Class | Produced by | Contents |
 | --- | --- | --- |
 | `DnsRecords` | `dns_enum.fetch_records` | Domain; type → values map (only types with at least one value, plus `DMARC` and `DKIM` when found); `status`, type → outcome (`OK`, `NOANSWER`, `NXDOMAIN`, `TIMEOUT`, `SERVFAIL`, `ERROR`, plus `DMARC` and `AXFR` entries); `findings` (mail and AXFR); optional error. |
-| `Subdomain` | `dns_enum.enumerate_subdomains` | Hostname, resolved addresses, discovery source (`target`, `crt.sh`, `bruteforce`). |
+| `Subdomain` | `dns_enum.enumerate_subdomains` | Hostname, resolved addresses, discovery source (`target`, `mx`, `ns`, `crt.sh`, `bruteforce`). |
 | `Redirect` | `http_probe.probe_url` | Status and destination of a single hop in the redirect chain. |
-| `HttpResult` | `http_probe.probe_url` | Full probe outcome: reachability, status, title, headers (redacted by default), redirect chain, final URL, technologies, interesting paths, security findings, error. |
+| `HttpResult` | `http_probe.probe_url` | Full probe outcome: reachability, status, title, headers (redacted by default), redirect chain, final URL, technologies, interesting paths, security `findings`, informational `notes`, per-scheme outcomes (`schemes`), `timed_out`, error. |
 | `TlsInfo` | `tls_info.inspect` | Host, port, validity, issuer, subject, validity window, days remaining, SANs (DNS and IP), `trusted`, `verify_error`, `protocol`, `cipher`, findings, error. |
 | `PortResult` | `port_scan.check_port` | Port, open state, conventional service name, optional sanitised banner. |
 | `SkippedHost` | `context.ScanContext.skip` | Host that was deliberately not contacted, and why (out of scope, non-public address, redirect target). |
@@ -406,12 +406,26 @@ ignores proxy environment variables (`trust_env=False`).
 that is not JSON. The caller records them, so "crt.sh failed" is never mistaken
 for "crt.sh knows no names".
 
+### `record_hosts(records) -> dict[str, str]`
+
+Maps the hostnames named by MX and NS records to `"mx"` or `"ns"`: the MX
+preference is dropped, names are lowercased without the trailing dot, and the
+null MX (`0 .`) and other invalid names are discarded.
+
+*Tests:* `tests/test_parsing.py::TestRecordHosts`
+
+### `mail_and_name_servers(ctx, resolver) -> dict[str, str]` *(async)*
+
+Returns `record_hosts` of the target, reusing the records of the DNS stage
+when `ctx.report.dns` holds them and querying MX and NS otherwise.
+
 ### `select_candidates(candidates, domain, limit) -> list[str]`
 
 Orders candidates by source confidence and applies the cap.
 
 **Behaviour.** Sorting is by the pair (source priority, name), with priority
-`target` < `crt.sh` < `bruteforce`. A non-positive limit returns the whole set.
+`target` < `mx` = `ns` = `crt.sh` < `bruteforce`. A non-positive limit returns
+the whole set.
 
 **Rationale.** Plain alphabetical truncation silently drops the apex domain and
 passively discovered names that sort late — precisely the hosts most likely to
@@ -432,7 +446,8 @@ candidates, resolves them and returns only the hosts that exist.
 
 ```mermaid
 flowchart TD
-    A["Start"] --> B{"passive enabled?"}
+    A["Start"] --> M["Add in-scope MX/NS hosts<br/>(source = mx / ns)"]
+    M --> B{"passive enabled?"}
     B -->|yes| C["Query crt.sh<br/>(throttled, User-Agent, proxy)"]
     C -->|failure| C2["ctx.error: crt.sh lookup failed"]
     B -->|no| D
@@ -453,8 +468,11 @@ flowchart TD
 
 **Behaviour.** Each found subdomain is passed to `ctx.emit("subdomain", …)` as
 soon as it resolves. The apex is always relabelled `target`, even if crt.sh also
-listed it. crt.sh names that resolve only to wildcard addresses are kept,
-because a certificate is evidence of their existence; wordlist guesses are not.
+listed it. MX/NS hosts outside the scope (a hosted mail provider, the
+registrar's name servers) are not candidates and are not listed as skipped.
+MX/NS and crt.sh names that resolve only to wildcard addresses are kept,
+because a record or a certificate is evidence of their existence; wordlist
+guesses are not.
 
 **Error handling.** A crt.sh failure becomes an `errors` entry and enumeration
 proceeds. Each candidate is resolved under `asyncio.gather(…,
@@ -591,17 +609,34 @@ header, headers (through `collect_headers`), technologies (through
 (through `security_headers.analyse`); if `content-length` is absent or not an
 ASCII number, it falls back to the actual length of the downloaded body.
 
+Findings and notes are kept apart. A placeholder page (`placeholder_kind`)
+gets the note `<kind>; security headers not checked` and no header or cookie
+findings. When the chain stopped on a redirect (out of scope, non-HTTP scheme,
+no `Location`) only the cookie checks run, with the note `redirect not
+followed; security headers not checked`.
+
 **Error handling.**
 
 | Condition | Outcome |
 | --- | --- |
-| Destination out of scope | The hop is recorded, a finding `redirect to <host> not followed (<reason>)` is added, `on_skip` is called, and the current response is analysed. |
+| Destination out of scope | The hop is recorded, a note `redirect to <host> not followed (<reason>)` is added, `on_skip` is called, and the current response is analysed (cookies only). |
 | Destination already visited | `error = "redirect loop at <url>"`, unreachable. |
 | More than `MAX_REDIRECTS` hops | `error = "too many redirects"`, unreachable. |
 | Budget exhausted | `error = "per-host request budget exhausted"`, unreachable. |
-| `httpx.HTTPError`, `InvalidURL`, `UnicodeError`, `ValueError` | Recorded in `error` with type and message. |
+| `httpx.HTTPError`, `InvalidURL`, `UnicodeError`, `ValueError` | Recorded in `error` with type and message; `timed_out` is set for `httpx.TimeoutException`. |
 
 *Tests:* `tests/test_http_io.py::TestProbeUrl` (against a loopback HTTP server)
+
+### `placeholder_kind(body) -> str | None`
+
+Names the kind of placeholder a page is — `empty page`, `nginx default page`,
+`Apache default page`, `IIS default page`, `web server default page`,
+`hosting placeholder`, `parked domain`, `coming-soon page` — or returns `None`
+for a real page. Patterns are matched on the first 64 KB of the body; the
+coming-soon and IIS patterns look at the `<title>` only, so a page that merely
+mentions those words is not a placeholder.
+
+*Tests:* `tests/test_parsing.py::TestPlaceholderKind`
 
 ### `discover_content(client, base_url, throttle, budget=None) -> list[str]` *(async)*
 
@@ -627,9 +662,15 @@ The module's entry point. `endpoints` is a list of `(host, port, scheme)`
 tuples built by the scanner; port and scheme may be `None`. Opens a single
 shared HTTP client and probes every endpoint.
 
-**Behaviour.** For each endpoint it tries the schemes from `_schemes_for` and
-returns the first reachable result; if none is reachable it returns the first
-result, which preserves the original error. The client is configured with the
+**Behaviour.** For each endpoint it probes the schemes from `_schemes_for` in
+order and keeps the first reachable result; if none is reachable it returns the
+first result, which preserves the original error, with `timed_out` set when
+every attempt timed out. Every scheme not probed in full is then checked with
+one request (`check_scheme`), so each endpoint without an explicit scheme is
+tested on both HTTPS and HTTP; `HttpResult.schemes` records each outcome
+(`describe_outcome`). For default-port endpoints `scheme_findings` adds
+`HTTPS not available: the site is served over plain HTTP only` or `plain HTTP
+serves content instead of redirecting to HTTPS`. The client is configured with the
 configured User-Agent, certificate verification from `config.verify_tls`
 (ADR-04), automatic redirects turned off, a connection limit aligned with the
 requested concurrency, the optional proxy, and `trust_env=False`. All requests
@@ -1045,7 +1086,8 @@ Runs the enabled stages and fills `report` (created if omitted) **in place**.
 **Behaviour.** Builds one `ScanContext` (one throttle, one scope), sets
 `complete=False`, `scope` and `settings`, then runs `_run_stages`, wrapped in
 `asyncio.wait_for` when `config.max_time` is set. On normal return it sets
-`complete=True`. On timeout it sets `incomplete_reason = "maximum scan time of
+`complete` from `incomplete_reasons(report)`: `True` when that list is empty,
+otherwise `False` with the reasons joined into `incomplete_reason`. On timeout it sets `incomplete_reason = "maximum scan time of
 Ns reached"` and adds an error. In all cases it populates `finished_at` and
 emits a `summary` event (`complete`, `incomplete_reason`, number of errors).
 
@@ -1060,6 +1102,15 @@ that accumulates into a list.
 
 **The `emit` parameter.** An optional `emit(kind, payload)` callback, stored in
 the context, which receives each result as soon as it exists.
+
+*Tests:* `tests/test_scanner.py::TestRunScan`
+
+### `incomplete_reasons(report) -> list[str]`
+
+Why a scan that ran every stage still lacks data: `N error(s) during the scan
+(see errors)` when `report.errors` is not empty, and `no response from in-scope
+host(s): …` for hosts whose HTTP result has `timed_out` or whose TLS handshake
+timed out. A refused connection is an answer and is not listed.
 
 *Tests:* `tests/test_scanner.py::TestRunScan`
 
@@ -1441,7 +1492,9 @@ Splits one `Set-Cookie` value into the cookie name, the set of flag attributes
 
 ### `analyse(headers, cookies, https) -> list[str]`
 
-Returns human-readable findings for missing or weak protections.
+Returns human-readable findings for missing or weak protections: the
+concatenation of `analyse_headers(headers, https)` and
+`analyse_cookies(cookies, https)`, which `probe_url` also calls separately.
 
 | Check | Finding |
 | --- | --- |
