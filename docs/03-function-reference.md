@@ -632,7 +632,9 @@ followed; security headers not checked`.
 Names the kind of placeholder a page is — `empty page`, `nginx default page`,
 `Apache default page`, `IIS default page`, `web server default page`,
 `hosting placeholder`, `parked domain`, `coming-soon page` — or returns `None`
-for a real page. Patterns are matched on the first 64 KB of the body; the
+for a real page. A body of at most 480 bytes with no `<title>`, `<script>`,
+`<form>`, `<link>` or `<iframe>` and at most 120 characters of text is a
+`minimal page` (a stub left by the host or a WAF). Patterns are matched on the first 64 KB of the body; the
 coming-soon and IIS patterns look at the `<title>` only, so a page that merely
 mentions those words is not a placeholder.
 
@@ -664,12 +666,14 @@ shared HTTP client and probes every endpoint.
 
 **Behaviour.** For each endpoint it probes the schemes from `_schemes_for` in
 order and keeps the first reachable result; if none is reachable it returns the
-first result, which preserves the original error, with `timed_out` set when
-every attempt timed out. Every scheme not probed in full is then checked with
+first result, which preserves the original error, with `timed_out` set when at
+least one attempt timed out (HTTPS stalling with HTTP refused is still a host
+that did not answer). Every scheme not probed in full is then checked with
 one request (`check_scheme`), so each endpoint without an explicit scheme is
 tested on both HTTPS and HTTP; `HttpResult.schemes` records each outcome
 (`describe_outcome`). For default-port endpoints `scheme_findings` adds
-`HTTPS not available: the site is served over plain HTTP only` or `plain HTTP
+`HTTPS not available: the site is served over plain HTTP only` (unless HTTP
+redirects to an `https://` URL, even on another host) or `plain HTTP
 serves content instead of redirecting to HTTPS`. The client is configured with the
 configured User-Agent, certificate verification from `config.verify_tls`
 (ADR-04), automatic redirects turned off, a connection limit aligned with the

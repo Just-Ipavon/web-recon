@@ -156,6 +156,24 @@ class TestProbeHosts:
         assert results[0].schemes["http"] == "200"
         assert results[0].schemes["https"] != "200"
 
+    async def test_https_stalling_and_http_refused_is_a_silent_host(self, monkeypatch):
+        # partecipagiovanicampania.it: HTTPS accepted and never replied
+        # (ReadTimeout); a refused HTTP must not hide that.
+        from webrecon.models import HttpResult
+
+        async def fake_probe(client, url, *args, **kwargs):
+            if url.startswith("https://"):
+                return HttpResult(url=url, reachable=False, error="ReadTimeout: ",
+                                  timed_out=True)
+            return HttpResult(url=url, reachable=False, error="ConnectError: refused")
+
+        monkeypatch.setattr(http_probe, "probe_url", fake_probe)
+        ctx = ScanContext.create(ScanConfig(target="example.com"))
+        results = await http_probe.probe_hosts([("example.com", None, None)], ctx)
+        assert results[0].timed_out is True
+        assert results[0].schemes == {"https": "ReadTimeout: ",
+                                      "http": "ConnectError: refused"}
+
     async def test_an_explicit_scheme_is_the_only_one_tested(self, http_server):
         server = http_server({"/": response(200, "<title>x</title>")})
         config = ScanConfig(target="127.0.0.1", timeout=2, allow_private=True)
@@ -194,6 +212,15 @@ class TestSchemeFindings:
             self._result("https://example.com"), self._Response(200)
         )
         assert findings == ["plain HTTP serves content instead of redirecting to HTTPS"]
+
+    def test_http_redirecting_to_https_elsewhere_is_not_http_only(self):
+        # admin.partecipagiovanicampania.it: HTTP 301 to https://admin.aruba.it/
+        from webrecon.models import Redirect
+
+        result = self._result("http://admin.example.com")
+        result.status = 301
+        result.redirects = [Redirect(status=301, location="https://admin.aruba.it/")]
+        assert http_probe.scheme_findings(result, None) == []
 
     def test_plain_http_redirecting_to_https_is_fine(self):
         assert http_probe.scheme_findings(

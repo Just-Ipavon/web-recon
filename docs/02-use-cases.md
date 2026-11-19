@@ -218,7 +218,7 @@ the target actively.
 
 | Id | Condition | Behaviour |
 | --- | --- | --- |
-| A1 | The first scheme fails | The system probes the other in full; if that fails too it returns the first result, which carries the original error, with `timed_out` set when every attempt timed out. |
+| A1 | The first scheme fails | The system probes the other in full; if that fails too it returns the first result, which carries the original error, with `timed_out` set when at least one attempt timed out. |
 | A2 | Redirects exceed the limit | `HttpResult.error` reports `too many redirects` and the host is marked unreachable. |
 | A3 | A redirect returns to a URL already visited | `HttpResult.error` reports `redirect loop at …` and the host is marked unreachable. |
 | A4 | A redirect points outside the scope | It is recorded in `redirects` and in `notes` (not `findings`), the destination is listed in `skipped`, and the redirect response gets only the cookie checks: missing headers on a redirect say nothing about the site. |

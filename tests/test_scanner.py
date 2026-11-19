@@ -178,6 +178,27 @@ class TestRunScan:
             "no response from in-scope host(s): www.example.com, api.example.com"
         )
 
+    def test_the_report_that_motivated_the_change_is_incomplete(self):
+        # partecipagiovanicampania.it was reported complete despite a failed
+        # crt.sh lookup and an apex that never answered over HTTPS.
+        from webrecon.models import ScanReport
+
+        report = ScanReport(target="partecipagiovanicampania.it")
+        report.errors = ["subdomains: crt.sh lookup failed: ReadTimeout: "]
+        report.http = [
+            HttpResult(url="https://partecipagiovanicampania.it", reachable=False,
+                       error="ReadTimeout: ", timed_out=True),
+            HttpResult(url="https://www.partecipagiovanicampania.it", reachable=False,
+                       error="ReadTimeout: ", timed_out=True),
+            HttpResult(url="https://ftp.partecipagiovanicampania.it", reachable=True,
+                       status=200),
+        ]
+        assert scanner.incomplete_reasons(report) == [
+            "1 error during the scan (see errors)",
+            "no response from in-scope host(s): partecipagiovanicampania.it, "
+            "www.partecipagiovanicampania.it",
+        ]
+
     async def test_max_time_returns_a_partial_report(self, monkeypatch, stub_modules):
         async def slow_http(endpoints, ctx):
             await asyncio.sleep(5)

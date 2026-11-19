@@ -384,6 +384,18 @@ class TestPlaceholderKind:
 
         assert placeholder_kind(body) == kind
 
+    def test_a_tiny_stub_page_is_a_placeholder(self):
+        # ftp.partecipagiovanicampania.it: 57 bytes of HTML, no title.
+        from webrecon.modules.http_probe import placeholder_kind
+
+        assert placeholder_kind("<html><body><p>Coming up shortly</p></body></html>\n") \
+            == "minimal page"
+
+    def test_a_short_page_with_a_script_is_not_a_stub(self):
+        from webrecon.modules.http_probe import placeholder_kind
+
+        assert placeholder_kind('<div id="app"></div><script src="/app.js"></script>') is None
+
     def test_a_real_page_is_not_a_placeholder(self):
         from webrecon.modules.http_probe import placeholder_kind
 

@@ -47,6 +47,12 @@ _SECURITY_TXT_RE = re.compile(r"^[ \t]*contact[ \t]*:", re.I | re.M)
 _SITEMAP_RE = re.compile(r"<(?:[\w-]+:)?(?:urlset|sitemapindex)\b", re.I)
 _HTML_RE = re.compile(r"<(?:!doctype\s+html|html|head|body)\b", re.I)
 
+# A page this short, with no title, script, form or stylesheet, is a stub
+# (an index left by the host or a WAF), not an application.
+MINIMAL_PAGE_TEXT = 120
+_ACTIVE_CONTENT_RE = re.compile(r"<(?:script|form|link|iframe|title)\b", re.I)
+_TAG_RE = re.compile(r"<[^>]*>")
+
 # Default server pages, hosting placeholders and parked domains. Missing
 # security headers on these are noise, not findings about an application.
 PLACEHOLDER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -146,6 +152,10 @@ def placeholder_kind(body: str) -> str | None:
     for pattern, kind in PLACEHOLDER_PATTERNS:
         if pattern.search(sample):
             return kind
+    if len(body) <= 4 * MINIMAL_PAGE_TEXT and not _ACTIVE_CONTENT_RE.search(body):
+        text = " ".join(_TAG_RE.sub(" ", body).split())
+        if len(text) <= MINIMAL_PAGE_TEXT:
+            return "minimal page"
     return None
 
 
@@ -434,7 +444,10 @@ def scheme_findings(primary: HttpResult, other: httpx.Response | None) -> list[s
     scheme = urlsplit(primary.url).scheme
     if not primary.reachable:
         return []
-    if scheme == "http" and not (primary.final_url or "").startswith("https://"):
+    if scheme == "http":
+        locations = [primary.final_url or ""] + [r.location for r in primary.redirects]
+        if any(loc.lower().startswith("https://") for loc in locations):
+            return []  # HTTP only redirects, to HTTPS (possibly on another host)
         return ["HTTPS not available: the site is served over plain HTTP only"]
     if scheme == "https" and other is not None and 200 <= other.status_code < 300:
         return ["plain HTTP serves content instead of redirecting to HTTPS"]
@@ -488,7 +501,9 @@ async def probe_hosts(
                     break
             if primary is None:
                 primary = attempts[schemes[0]]
-                primary.timed_out = all(r.timed_out for r in attempts.values())
+                # Nothing answered and something accepted the connection or
+                # dropped it silently: data is missing, not a closed port.
+                primary.timed_out = any(r.timed_out for r in attempts.values())
 
             other: httpx.Response | None = None
             for candidate in schemes:

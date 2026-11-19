@@ -59,7 +59,8 @@ class HttpResult:
     # Outcome of each scheme tried on this endpoint, e.g.
     # {"https": "200", "http": "301 -> https://example.com/"}.
     schemes: dict[str, str] = field(default_factory=dict)
-    # True when every attempt timed out: the host did not answer at all.
+    # True when no scheme got an HTTP answer and at least one attempt timed
+    # out: the host accepted or dropped the connection but never replied.
     timed_out: bool = False
     error: str | None = None
 
