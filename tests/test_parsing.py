@@ -351,3 +351,53 @@ class TestSecurityHeaders:
         assert "missing Strict-Transport-Security" not in security_headers.analyse(
             {}, [], https=False
         )
+
+
+class TestRecordHosts:
+    def test_extracts_mx_and_ns_hostnames(self):
+        from webrecon.modules.dns_enum import record_hosts
+
+        hosts = record_hosts(
+            {
+                "MX": ["10 Mail.Example.com.", "0 ."],
+                "NS": ["ns1.example.com.", "mail.example.com."],
+            }
+        )
+        assert hosts == {"mail.example.com": "mx", "ns1.example.com": "ns"}
+
+
+class TestPlaceholderKind:
+    @pytest.mark.parametrize(
+        ("body", "kind"),
+        [
+            ("", "empty page"),
+            ("<title>Welcome to nginx!</title>", "nginx default page"),
+            ("<title>Apache2 Ubuntu Default Page: It works</title>", "Apache default page"),
+            ("<html><body><h1>It works!</h1></body></html>", "Apache default page"),
+            ("<title>IIS Windows Server</title>", "IIS default page"),
+            ("<p>This domain is for sale!</p>", "parked domain"),
+            ("<title>Coming Soon</title>", "coming-soon page"),
+        ],
+    )
+    def test_recognises_placeholders(self, body, kind):
+        from webrecon.modules.http_probe import placeholder_kind
+
+        assert placeholder_kind(body) == kind
+
+    def test_a_tiny_stub_page_is_a_placeholder(self):
+        # ftp.partecipagiovanicampania.it: 57 bytes of HTML, no title.
+        from webrecon.modules.http_probe import placeholder_kind
+
+        assert placeholder_kind("<html><body><p>Coming up shortly</p></body></html>\n") \
+            == "minimal page"
+
+    def test_a_short_page_with_a_script_is_not_a_stub(self):
+        from webrecon.modules.http_probe import placeholder_kind
+
+        assert placeholder_kind('<div id="app"></div><script src="/app.js"></script>') is None
+
+    def test_a_real_page_is_not_a_placeholder(self):
+        from webrecon.modules.http_probe import placeholder_kind
+
+        body = "<title>Acme shop</title><p>We are coming soon to your city. It works great.</p>"
+        assert placeholder_kind(body) is None

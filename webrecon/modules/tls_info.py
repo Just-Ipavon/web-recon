@@ -121,9 +121,12 @@ def parse_der(der: bytes, host: str, port: int) -> TlsInfo:
     return info
 
 
+HANDSHAKE_TIMEOUT = "TLS handshake timed out"
+
+
 def describe_error(exc: BaseException) -> str:
     if isinstance(exc, asyncio.TimeoutError):
-        return "TLS handshake timed out"
+        return HANDSHAKE_TIMEOUT
     text = str(exc) or type(exc).__name__
     return f"{type(exc).__name__}: {text}"
 

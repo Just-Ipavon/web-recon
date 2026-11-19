@@ -47,6 +47,46 @@ _SECURITY_TXT_RE = re.compile(r"^[ \t]*contact[ \t]*:", re.I | re.M)
 _SITEMAP_RE = re.compile(r"<(?:[\w-]+:)?(?:urlset|sitemapindex)\b", re.I)
 _HTML_RE = re.compile(r"<(?:!doctype\s+html|html|head|body)\b", re.I)
 
+# A page this short, with no title, script, form or stylesheet, is a stub
+# (an index left by the host or a WAF), not an application.
+MINIMAL_PAGE_TEXT = 120
+_ACTIVE_CONTENT_RE = re.compile(r"<(?:script|form|link|iframe|title)\b", re.I)
+_TAG_RE = re.compile(r"<[^>]*>")
+
+# Default server pages, hosting placeholders and parked domains. Missing
+# security headers on these are noise, not findings about an application.
+PLACEHOLDER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"welcome to nginx|test page for the nginx", re.I), "nginx default page"),
+    (
+        re.compile(
+            r"apache2 \w+ default page|test page for the apache|<h1>\s*it works!?\s*</h1>",
+            re.I,
+        ),
+        "Apache default page",
+    ),
+    (re.compile(r"<title>\s*iis(?:\d+| windows server)?\s*</title>", re.I), "IIS default page"),
+    (re.compile(r"caddy works!|congratulations! your web site is now online", re.I),
+     "web server default page"),
+    (
+        re.compile(
+            r"default web site page|future home of something quite cool|"
+            r"web server's default page|<title>[^<]*\bdefault page\b[^<]*</title>",
+            re.I,
+        ),
+        "hosting placeholder",
+    ),
+    (
+        re.compile(
+            r"domain (?:name )?(?:is |may be )?for sale|buy this domain|"
+            r"this domain (?:is|has been) parked|domain parking|parked (?:free|domain)",
+            re.I,
+        ),
+        "parked domain",
+    ),
+    (re.compile(r"<title>\s*(?:coming soon|under construction)\s*</title>", re.I),
+     "coming-soon page"),
+)
+
 SkipCallback = Callable[[str, str], None]
 
 
@@ -102,6 +142,21 @@ def extract_title(body: str) -> str | None:
         return None
     title = re.sub(r"\s+", " ", raw).strip()
     return title[:200] or None
+
+
+def placeholder_kind(body: str) -> str | None:
+    """Name the kind of placeholder page ``body`` is, or None for a real page."""
+    if not body.strip():
+        return "empty page"
+    sample = body[:MAX_TITLE_SCAN]
+    for pattern, kind in PLACEHOLDER_PATTERNS:
+        if pattern.search(sample):
+            return kind
+    if len(body) <= 4 * MINIMAL_PAGE_TEXT and not _ACTIVE_CONTENT_RE.search(body):
+        text = " ".join(_TAG_RE.sub(" ", body).split())
+        if len(text) <= MINIMAL_PAGE_TEXT:
+            return "minimal page"
+    return None
 
 
 def parse_robots(body: str) -> list[str]:
@@ -252,7 +307,7 @@ async def probe_url(
             if scope is not None and parts.hostname:
                 reason = scope.refusal(parts.hostname)
                 if reason:
-                    result.findings.append(
+                    result.notes.append(
                         f"redirect to {parts.hostname} not followed ({reason})"
                     )
                     if on_skip:
@@ -277,11 +332,19 @@ async def probe_url(
         result.server = response.headers.get("server")
         result.headers = collect_headers(response.headers, redact)
         result.technologies = tech_detect.detect(result.headers, body, raw_cookies)
-        result.findings.extend(
-            security_headers.analyse(
-                result.headers, raw_cookies, https=result.final_url.startswith("https://")
+        https = result.final_url.startswith("https://")
+        placeholder = placeholder_kind(body) if not response.is_redirect else None
+        if placeholder:
+            result.notes.append(f"{placeholder}; security headers not checked")
+        elif response.is_redirect:
+            # The chain stopped on a redirect (out of scope, non-HTTP scheme or
+            # no Location): its headers say nothing about the site behind it.
+            result.notes.append("redirect not followed; security headers not checked")
+            result.findings.extend(security_headers.analyse_cookies(raw_cookies, https))
+        else:
+            result.findings.extend(
+                security_headers.analyse(result.headers, raw_cookies, https=https)
             )
-        )
 
         length = response.headers.get("content-length")
         result.content_length = (
@@ -294,6 +357,7 @@ async def probe_url(
 
     except httpx.HTTPError as exc:
         result.error = f"{type(exc).__name__}: {exc}"
+        result.timed_out = isinstance(exc, httpx.TimeoutException)
     except (httpx.InvalidURL, UnicodeError, ValueError) as exc:
         result.error = f"{type(exc).__name__}: {exc}"
 
@@ -347,13 +411,59 @@ def _schemes_for(port: int | None, scheme: str | None) -> list[str]:
     return ["https", "http"]
 
 
+def describe_outcome(result: HttpResult) -> str:
+    """One-line outcome of a probe: status, first redirect, or the error."""
+    if not result.reachable:
+        return result.error or "no response"
+    if result.redirects:
+        first = result.redirects[0]
+        return f"{first.status} -> {first.location}"
+    return str(result.status)
+
+
+async def check_scheme(
+    client: httpx.AsyncClient, url: str, throttle: Throttle, budget: RequestBudget | None
+) -> tuple[str, httpx.Response | None]:
+    """One request, redirects not followed: how ``url`` answers, and the response."""
+    try:
+        response = await _get(client, url, throttle, budget)
+    except httpx.HTTPError as exc:
+        return f"{type(exc).__name__}: {exc}", None
+    except (httpx.InvalidURL, UnicodeError, ValueError) as exc:
+        return f"{type(exc).__name__}: {exc}", None
+    if response is None:
+        return "per-host request budget exhausted", None
+    location = response.headers.get("location")
+    if response.is_redirect and location:
+        return f"{response.status_code} -> {location}", response
+    return str(response.status_code), response
+
+
+def scheme_findings(primary: HttpResult, other: httpx.Response | None) -> list[str]:
+    """Findings from comparing HTTPS and HTTP on a default-port endpoint."""
+    scheme = urlsplit(primary.url).scheme
+    if not primary.reachable:
+        return []
+    if scheme == "http":
+        locations = [primary.final_url or ""] + [r.location for r in primary.redirects]
+        if any(loc.lower().startswith("https://") for loc in locations):
+            return []  # HTTP only redirects, to HTTPS (possibly on another host)
+        return ["HTTPS not available: the site is served over plain HTTP only"]
+    if scheme == "https" and other is not None and 200 <= other.status_code < 300:
+        return ["plain HTTP serves content instead of redirecting to HTTPS"]
+    return []
+
+
 async def probe_hosts(
     endpoints: list[tuple[str, int | None, str | None]], ctx: ScanContext
 ) -> list[HttpResult]:
-    """Probe each (host, port, scheme) endpoint, trying HTTPS and HTTP as needed.
+    """Probe each (host, port, scheme) endpoint over every applicable scheme.
 
-    Without an explicit scheme, HTTPS is tried first except on ports where
-    plain HTTP is the norm. The first reachable answer wins.
+    Without an explicit scheme every endpoint is tested on both HTTPS and HTTP,
+    so all hosts are compared on the same terms. HTTPS comes first except on
+    ports where plain HTTP is the norm; the first reachable scheme gets the
+    full probe (redirects, headers, content discovery) and the other is
+    checked with a single request. ``HttpResult.schemes`` records both.
     """
     config = ctx.config
     budget = RequestBudget(config.max_requests_per_host)
@@ -372,8 +482,10 @@ async def probe_hosts(
         async def probe_endpoint(endpoint: tuple[str, int | None, str | None]) -> HttpResult:
             host, port, scheme = endpoint
             netloc = format_netloc(host, port)
-            first: HttpResult | None = None
-            for candidate in _schemes_for(port, scheme):
+            schemes = _schemes_for(port, scheme)
+            attempts: dict[str, HttpResult] = {}
+            primary: HttpResult | None = None
+            for candidate in schemes:
                 result = await probe_url(
                     client,
                     f"{candidate}://{netloc}",
@@ -383,11 +495,28 @@ async def probe_hosts(
                     redact=config.redact,
                     on_skip=ctx.skip,
                 )
+                attempts[candidate] = result
                 if result.reachable:
-                    return result
-                first = first or result
-            assert first is not None
-            return first
+                    primary = result
+                    break
+            if primary is None:
+                primary = attempts[schemes[0]]
+                # Nothing answered and something accepted the connection or
+                # dropped it silently: data is missing, not a closed port.
+                primary.timed_out = any(r.timed_out for r in attempts.values())
+
+            other: httpx.Response | None = None
+            for candidate in schemes:
+                if candidate in attempts:
+                    primary.schemes[candidate] = describe_outcome(attempts[candidate])
+                else:
+                    outcome, other = await check_scheme(
+                        client, f"{candidate}://{netloc}", ctx.throttle, budget
+                    )
+                    primary.schemes[candidate] = outcome
+            if port is None and scheme is None:
+                primary.findings.extend(scheme_findings(primary, other))
+            return primary
 
         async def guarded(endpoint: tuple[str, int | None, str | None]) -> HttpResult:
             try:

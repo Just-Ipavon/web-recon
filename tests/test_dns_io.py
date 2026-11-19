@@ -103,8 +103,46 @@ class TestEnumerateSubdomains:
         wordlist.write_text("\n".join(f"guess{i}" for i in range(20)) + "\nwww\n")
         ctx = ScanContext.create(config_for(server, wordlist=wordlist))
         subs = await dns_enum.enumerate_subdomains(ctx)
-        assert sorted(s.name for s in subs) == ["example.com", "www.example.com"]
+        # mail.example.com is named by the MX record, so the wildcard filter
+        # (which only applies to wordlist guesses) does not discard it.
+        assert sorted(s.name for s in subs) == [
+            "example.com", "mail.example.com", "www.example.com"
+        ]
         assert any("wildcard DNS detected" in n for n in ctx.report.notes)
+
+    async def test_mail_and_name_servers_become_candidates(self, fake_dns):
+        zone = {
+            ("example.com", "A"): ["93.184.216.34"],
+            ("example.com", "MX"): ["10 mx1.example.com.", "20 aspmx.l.google.com."],
+            ("example.com", "NS"): ["ns1.example.com.", "ns.registrar.test."],
+            ("mx1.example.com", "A"): ["93.184.216.40"],
+            ("ns1.example.com", "A"): ["93.184.216.41"],
+        }
+        server = fake_dns(zone)
+        ctx = ScanContext.create(config_for(server, wordlist=None))
+        subs = await dns_enum.enumerate_subdomains(ctx)
+        assert {s.name: s.source for s in subs} == {
+            "example.com": "target",
+            "mx1.example.com": "mx",
+            "ns1.example.com": "ns",
+        }
+        # Third-party mail and DNS providers are not candidates, not "skipped".
+        assert ctx.report.skipped == []
+
+    async def test_reuses_the_records_of_the_dns_stage(self, fake_dns):
+        from webrecon.models import DnsRecords
+
+        zone = {
+            ("example.com", "A"): ["93.184.216.34"],
+            ("relay.example.com", "A"): ["93.184.216.42"],
+        }
+        server = fake_dns(zone)
+        ctx = ScanContext.create(config_for(server, wordlist=None))
+        ctx.report.dns = DnsRecords(
+            domain="example.com", records={"MX": ["5 relay.example.com."]}
+        )
+        subs = await dns_enum.enumerate_subdomains(ctx)
+        assert {s.name: s.source for s in subs}["relay.example.com"] == "mx"
 
     async def test_apex_is_kept_with_source_target_when_crtsh_lists_it(
         self, fake_dns, http_server, monkeypatch

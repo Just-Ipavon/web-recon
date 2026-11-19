@@ -305,6 +305,39 @@ async def passive_subdomains(
         return parse_crtsh(response.text, domain)
 
 
+def record_hosts(records: dict[str, list[str]]) -> dict[str, str]:
+    """Hostnames named by MX and NS records, mapped to the record type ("mx"/"ns").
+
+    ``10 mail.example.com.`` becomes ``mail.example.com``; entries that are
+    not valid hostnames (the null MX ``0 .``) are dropped.
+    """
+    hosts: dict[str, str] = {}
+    for rtype in ("MX", "NS"):
+        for value in records.get(rtype, []):
+            parts = value.split()
+            if not parts:
+                continue
+            name = parts[-1].rstrip(".").lower()
+            if is_valid_hostname(name):
+                hosts.setdefault(name, rtype.lower())
+    return hosts
+
+
+async def mail_and_name_servers(
+    ctx: ScanContext, resolver: dns.asyncresolver.Resolver
+) -> dict[str, str]:
+    """MX and NS hosts of the target, from the DNS stage or queried now."""
+    domain = ctx.config.target
+    dns_result = ctx.report.dns
+    if dns_result is not None and dns_result.domain == domain:
+        return record_hosts(dns_result.records)
+    records: dict[str, list[str]] = {}
+    for rtype in ("MX", "NS"):
+        _, values = await _query(resolver, domain, rtype, ctx.throttle)
+        records[rtype] = values
+    return record_hosts(records)
+
+
 def select_candidates(
     candidates: dict[str, str], domain: str, limit: int
 ) -> list[str]:
@@ -312,10 +345,10 @@ def select_candidates(
 
     Plain alphabetical truncation silently drops the apex domain and every
     passively discovered name that sorts late, which are the hosts most likely
-    to exist. Order by confidence first: the target, then names seen in
-    certificate transparency, then wordlist guesses.
+    to exist. Order by confidence first: the target, then names published in
+    MX/NS records or seen in certificate transparency, then wordlist guesses.
     """
-    priority = {"target": 0, "crt.sh": 1, "bruteforce": 2}
+    priority = {"target": 0, "mx": 1, "ns": 1, "crt.sh": 1, "bruteforce": 2}
     ordered = sorted(
         candidates, key=lambda host: (priority.get(candidates[host], 3), host)
     )
@@ -332,12 +365,19 @@ async def detect_wildcard(
 
 
 async def enumerate_subdomains(ctx: ScanContext) -> list[Subdomain]:
-    """Discover subdomains passively and/or by brute-force, then resolve them."""
+    """Discover subdomains from MX/NS records, passively and by brute-force, then resolve them."""
     config = ctx.config
     domain = config.target
     resolver = make_resolver(config.timeout, config.nameservers, config.dns_port)
 
     candidates: dict[str, str] = {}
+
+    # Mail and name servers inside the scope are real hosts of the target.
+    # Those outside it (a hosted mail provider, the registrar's DNS) are not
+    # candidates at all, so they are dropped without a "skipped" entry.
+    for name, source in (await mail_and_name_servers(ctx, resolver)).items():
+        if name != domain and ctx.scope.allows_name(name):
+            candidates[name] = source
 
     if config.passive:
         try:

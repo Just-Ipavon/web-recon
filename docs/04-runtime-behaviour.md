@@ -443,7 +443,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | Operation | Unreachable host, HTTP timeout, redirect loop, budget exhausted, TLS port closed, unverifiable certificate, one DNS query failing | `HttpResult.error`, `TlsInfo.error`, `TlsInfo.verify_error`, `DnsRecords.status` | That single result carries the error; other hosts are unaffected. |
 | Stage | No DNS records resolved, crt.sh unreachable, port scan target unresolvable, unexpected exception in a stage, target out of scope | `ScanReport.errors`, `ScanReport.skipped`, `ScanReport.notes` | The stage produces no (or partial) data; later stages proceed on what is available. |
-| Scan | `--max-time` reached, Ctrl-C, exception escaping `run_scan` | `complete=False`, `incomplete_reason`, `errors` | The report keeps everything gathered and is written; exit 0, 130 or 1 respectively. |
+| Scan | `--max-time` reached, Ctrl-C, exception escaping `run_scan`; or, at the end of a scan, any entry in `errors` or an in-scope host whose HTTP or TLS attempts all timed out | `complete=False`, `incomplete_reason`, `errors` | The report keeps everything gathered and is written; exit 0, 130 or 1 respectively. |
 | Process | Unknown module, invalid target or scope entry, missing wordlist, malformed ports or numbers, unusable output path, authorisation not confirmed | `argparse` usage error | The process terminates before the scan, writing no report; exit 2. |
 
 The fourth level's preconditions are checked **before** any network traffic

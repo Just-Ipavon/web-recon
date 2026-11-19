@@ -260,9 +260,11 @@ the `ScanReport` that contains it, and recursive serialisation through
 The report carries its own provenance: `scope` (the perimeter as enforced),
 `authorization` (operator, instant and method of the confirmation), `settings`
 (the effective options, with proxy credentials redacted) and `complete` /
-`incomplete_reason`, which tell a consumer whether the scan ran to the end. A
-report is created `complete=False` and only flipped to `True` when every stage
-has returned.
+`incomplete_reason`, which tell a consumer whether the report holds everything
+the scan set out to collect. A report is created `complete=False` and only
+flipped to `True` when every stage has returned, no error was recorded and no
+in-scope host timed out (HTTP or TLS); otherwise `incomplete_reason` says why.
+A refused connection is an answer and does not make a report incomplete.
 
 ### 1.4.1 Configuration and infrastructure
 
